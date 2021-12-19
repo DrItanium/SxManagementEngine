@@ -1,6 +1,6 @@
 /*
-i960SxChipset
-Copyright (c) 2020-2021, Joshua Scoggins
+i960SxManagementEngine
+Copyright (c) 2020-2022, Joshua Scoggins
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -30,124 +30,21 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// - C++17
 /// Board Platform: MightyCore
 #include <SPI.h>
-#include <SdFat.h>
 #include "Pinout.h"
 
-#include "CacheEntry.h"
-#include "DirectMappedCacheWay.h"
-#include "TwoWayLRUCacheEntry.h"
-#include "FourWayPseudoLRUEntry.h"
-#include "EightWayPseudoLRUEntry.h"
-#include "SixteenWayPseudoLRUEntry.h"
-#include "EightWayRandPLRUEntry.h"
-#include "EightWayTreePLRUEntry.h"
-#include "SinglePoolCache.h"
-#include "MultiCache.h"
-
-#include "ProcessorSerializer.h"
-#include "DisplayInterface.h"
-#include "CoreChipsetFeatures.h"
-#include "PSRAMChip.h"
-#include "SDCardAsRam.h"
-#include "TaggedCacheAddress.h"
-#include "RTCInterface.h"
-#include "i960SxChipset.h"
 #include "type_traits.h"
 
-constexpr auto RTCBaseAddress = 0xFA00'0000;
-constexpr auto Serial0BaseAddress = 0xFB00'0000;
-constexpr auto DisplayBaseAddress = 0xFC00'0000;
-constexpr auto SDBaseAddress = 0xFD00'0000;
-constexpr auto MaximumNumberOfOpenFiles = 16;
 constexpr auto CompileInAddressDebuggingSupport = false;
 constexpr auto AddressDebuggingEnabledOnStartup = false;
 constexpr auto UsePSRAMForType2 = false;
 constexpr auto ValidateTransferDuringInstall = TargetBoard::onAtmega1284p_Type2() && UsePSRAMForType2;
 constexpr auto UseSingleChannelConfigurationForType2 = true;
-/**
- * @brief When set to true, the interrupt lines the mcp23s17 provides are used to determine which bytes to read
- */
-constexpr auto UseIOExpanderAddressLineInterrupts = TargetBoard::onAtmega1284p_Type2();
-using TheDisplayInterface = DisplayInterface<DisplayBaseAddress>;
-using TheSDInterface = SDCardInterface<MaximumNumberOfOpenFiles, SDBaseAddress>;
-using TheConsoleInterface = Serial0Interface<Serial0BaseAddress, CompileInAddressDebuggingSupport, AddressDebuggingEnabledOnStartup>;
-using TheRTCInterface = RTCInterface<RTCBaseAddress>;
-using ConfigurationSpace = CoreChipsetFeatures<TheConsoleInterface,
-        TheSDInterface,
-        TheDisplayInterface,
-        TheRTCInterface>;
-// define the backing memory storage classes via template specialization
-// at this point in time, if no specialization is performed, use SDCard as ram backend
-using FallbackMemory = SDCardAsRam<TheSDInterface >;
-template<TargetMCU mcu> struct BackingMemoryStorage final { using Type = FallbackMemory; };
-template<> struct BackingMemoryStorage<TargetMCU::ATmega1284p_Type1> final { using Type = OnboardPSRAMBlock; };
-template<> struct BackingMemoryStorage<TargetMCU::ATmega1284p_Type2> final {
-#ifdef CHIPSET_TYPE2
-    using Type = conditional_t<UsePSRAMForType2 , Type2MemoryBlock<UseSingleChannelConfigurationForType2>, FallbackMemory>;
-#else
-    using Type = conditional_t<UsePSRAMForType2 , OnboardPSRAMBlock , FallbackMemory>;
-#endif
-};
-
-using BackingMemoryStorage_t = BackingMemoryStorage<TargetBoard::getMCUTarget()>::Type;
-constexpr auto computeCacheLineSize() noexcept {
-   if constexpr (TargetBoard::onAtmega1284p_Type1())  {
-       return 6;
-   } else if constexpr (TargetBoard::onAtmega1284p_Type2()) {
-        if constexpr (UsePSRAMForType2) {
-            return 6;
-        } else {
-            // sdcard as ram means that we want to increase the hit rate as much as possible even if it slows down misses
-            // the sdcard is so damn slow!
-            return 6;
-        }
-   } else {
-       return 6;
-   }
-}
-//using OnboardPSRAMBlock = ::
-constexpr auto NumAddressBitsForPSRAMCache = 26;
-constexpr auto NumAddressBits = NumAddressBitsForPSRAMCache;
-constexpr auto CacheLineSize = computeCacheLineSize();
-constexpr auto CacheSize = 8192;
-template<auto a, auto b, auto c, typename d>
-using CacheWayStyle = conditional_t<TargetBoard::onAtmega1284p_Type2(),
-        conditional_t<UsePSRAMForType2,
-                EightWayRandPLRUCacheSet<a,b,c,d>,
-                SixteenWayLRUCacheWay<a,b,c,d>>,
-        EightWayRandPLRUCacheSet<a,b,c,d>>;
-
-//using L1Cache = CacheInstance_t<EightWayTreePLRUCacheSet, CacheSize, NumAddressBits, CacheLineSize, BackingMemoryStorage_t>;
-//using L1Cache = CacheInstance_t<EightWayLRUCacheWay, CacheSize, NumAddressBits, CacheLineSize, BackingMemoryStorage_t>;
-//using L1Cache = CacheInstance_t<EightWayRandPLRUCacheSet, CacheSize, NumAddressBits, CacheLineSize, BackingMemoryStorage_t>;
-using L1Cache = CacheInstance_t<CacheWayStyle, CacheSize, NumAddressBits, CacheLineSize, BackingMemoryStorage_t>;
-L1Cache theCache;
-
-//template<template<auto, auto, auto, typename> typename L,
-//        byte NumberOfCaches,
-//        uint16_t IndividualCacheSize,
-//        byte CacheLineSize>
-//using L1Cache = MultiCache<L, NumberOfCaches, IndividualCacheSize, NumAddressBits, CacheLineSize, BackingMemoryStorage_t>;
-//L1Cache<DirectMappedCacheWay, 11, 1024, 6> theCache;
-
-
-
-
 
 [[nodiscard]] bool informCPU() noexcept {
     // you must scan the BLAST_ pin before pulsing ready, the cpu will change blast for the next transaction
     auto isBurstLast = DigitalPin<i960Pinout::BLAST_>::isAsserted();
     pulse<i960Pinout::Ready>();
     return isBurstLast;
-}
-constexpr auto IncrementAddress = true;
-constexpr auto LeaveAddressAlone = false;
-// while the i960 does not allow going beyond 8 words, we can use the number of words cached in all cases to be safe
-constexpr byte MaximumNumberOfWordsTransferrableInASingleTransaction = decltype(theCache)::NumWordsCached;
-inline void displayRequestedAddress() noexcept {
-    auto address = ProcessorInterface::getAddress();
-    Serial.print(F("ADDRESS: 0x"));
-    Serial.println(address, HEX);
 }
 
 template<bool inDebugMode>
@@ -412,45 +309,6 @@ void setupDispatchTable() noexcept {
         lookupTable_Debug[TheConsoleInterface::SectionID] = handleExternalDeviceRequest<true, TheConsoleInterface>;
         lookupTable_Debug[ConfigurationSpace::SectionID] = handleExternalDeviceRequest<true, ConfigurationSpace>;
     }
-}
-void setupChipsetType1() noexcept {
-#ifdef CHIPSET_TYPE1
-    Serial.println(F("Bringing up type1 specific aspects!"));
-    setupPins(OUTPUT,
-              i960Pinout::SPI_OFFSET0,
-              i960Pinout::SPI_OFFSET1,
-              i960Pinout::SPI_OFFSET2,
-              i960Pinout::Int0_);
-    digitalWrite<i960Pinout::SPI_OFFSET0, LOW>();
-    digitalWrite<i960Pinout::SPI_OFFSET1, LOW>();
-    digitalWrite<i960Pinout::SPI_OFFSET2, LOW>();
-    digitalWrite<i960Pinout::Int0_, HIGH>();
-    setupPins(INPUT,
-              i960Pinout::BA1,
-              i960Pinout::BA2,
-              i960Pinout::BA3);
-#endif
-}
-void setupSecondSPIBus() noexcept {
-#ifdef CHIPSET_TYPE2
-    UBRR1 = 0x0000;
-    pinMode(i960Pinout::SCK1, OUTPUT); // setup XCK1 which is actually SCK1
-    UCSR1C = _BV(UMSEL11) | _BV(UMSEL10); // set usart spi mode of operation and SPI data mode 1,1
-    UCSR1B = _BV(TXEN1) | _BV(RXEN1); // enable transmitter and reciever
-    // set the baud rate. IMPORTANT: The Baud Rate must be set after the Transmitter is enabled
-    UBRR1 = 0x0000; // where maximum speed of FCPU/2 = 0x0000
-    // make sure we setup the PSRAM enable pins
-#endif
-}
-void setupChipsetType2() noexcept {
-#ifdef CHIPSET_TYPE2
-    Serial.println(F("Bringing up type2 specific aspects!"));
-    setupSecondSPIBus();
-    pinMode(i960Pinout::INT_EN2, INPUT);
-    pinMode(i960Pinout::INT_EN3, INPUT);
-    pinMode(i960Pinout::PSRAM_EN1, OUTPUT);
-    digitalWrite<i960Pinout::PSRAM_EN1, HIGH>();
-#endif
 }
 
 void setupChipsetVersionSpecificPins() noexcept {

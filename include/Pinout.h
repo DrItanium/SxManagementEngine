@@ -28,35 +28,62 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Arduino.h>
 #include "MCUPlatform.h"
 using Address = uint32_t;
-/**
- * @brief Sx Load/Store styles that the processor will request
- */
-enum class LoadStoreStyle : uint8_t {
-    // based off of BE0,BE1 pins
-#if 0
-    Full16 = 0b00,
-    Upper8 = 0b01,
-    Lower8 = 0b10,
-    None = 0b11,
-#else
-// no need to shift
-    Full16 = 0b0000'0000,
-    Upper8 = 0b0001'0000,
-    Lower8 = 0b0010'0000,
-    None = 0b0011'0000,
-#endif
-};
 /// @todo fix this pinout for different targets
 enum class i960Pinout : int {
-#ifdef CHIPSET_TYPE1
-#include "Type1Pinout.def"
-#elif defined(CHIPSET_TYPE2)
-#include "Type2Pinout.def"
-#elif defined(CHIPSET_TYPE1_4)
-#include "Type1_4Pinout.def"
-#else
-#error "Target Chipset Hardware has no pinout defined"
-#endif
+    PORT_B0 = 0,
+    PORT_B1,
+    PORT_B2,
+    PORT_B3,
+    PORT_B4,
+    PORT_B5,
+    PORT_B6,
+    PORT_B7,
+    PORT_D0,
+    PORT_D1,
+    PORT_D2,
+    PORT_D3,
+    PORT_D4,
+    PORT_D5,
+    PORT_D6,
+    PORT_D7,
+    PORT_C0,
+    PORT_C1,
+    PORT_C2,
+    PORT_C3,
+    PORT_C4,
+    PORT_C5,
+    PORT_C6,
+    PORT_C7,
+    PORT_A0,
+    PORT_A1,
+    PORT_A2,
+    PORT_A3,
+    PORT_A4,
+    PORT_A5,
+    PORT_A6,
+    PORT_A7,
+    Count,
+    CLOCK_OUT= PORT_B1,
+    MCU_READY = PORT_D3,
+    FAIL960 = PORT_D4,
+    SuccessfulBoot = PORT_D5,
+    WaitBoot960 = PORT_D6,
+    DoCycle = PORT_C0,
+    StartTransaction = PORT_C1,
+    BurstNext = PORT_C2,
+    EndTransaction = PORT_C3,
+    Ready960 = PORT_C4,
+    BLAST = PORT_C5,
+    AS = PORT_C6,
+    DEN = PORT_C7,
+    INT960_0 = PORT_A0,
+    INT960_1 = PORT_A1,
+    INT960_2 = PORT_A2,
+    INT960_3 = PORT_A3,
+    RESET960 = PORT_A4,
+    LOCK960 = PORT_A5,
+    HLDA960 = PORT_A6,
+    HOLD960 = PORT_A7,
 };
 
 [[gnu::always_inline]]
@@ -272,6 +299,7 @@ struct DigitalPin {
         inline static void pulse() noexcept {   \
             ::pulse<pin, switchTo>();           \
         }                                       \
+        static void configure() noexcept { pinMode(pin, OUTPUT); } \
     }
 #define DefInputPin(pin, asserted, deasserted) \
     template<> \
@@ -293,23 +321,32 @@ struct DigitalPin {
         [[gnu::always_inline]] inline static bool isAsserted() noexcept { return read() == getAssertionState(); } \
         [[gnu::always_inline]] inline static bool isDeasserted() noexcept { return read() == getDeassertionState(); } \
         static constexpr auto valid() noexcept { return isValidPin960_v<pin>; } \
+        static void configure() noexcept { pinMode(pin, INPUT); } \
     }
-#define DefSPICSPin(pin) DefOutputPin(pin, LOW, HIGH)
 
-DefSPICSPin(i960Pinout::GPIOSelect);
-DefSPICSPin(i960Pinout::SD_EN);
-DefSPICSPin(i960Pinout::PSRAM_EN);
-#ifdef CHIPSET_TYPE2
-DefSPICSPin(i960Pinout::PSRAM_EN1);
-#endif
+DefInputPin(i960Pinout::MCU_READY, LOW, HIGH);
+DefInputPin(i960Pinout::FAIL960, HIGH, LOW);
+DefOutputPin(i960Pinout::SuccessfulBoot, HIGH, LOW);
+DefInputPin(i960Pinout::WaitBoot960, LOW, HIGH);
+DefOutputPin(i960Pinout::DoCycle, LOW, HIGH);
+DefOutputPin(i960Pinout::StartTransaction, LOW, HIGH);
+DefOutputPin(i960Pinout::BurstNext, LOW, HIGH);
+DefOutputPin(i960Pinout::EndTransaction, LOW, HIGH);
+DefOutputPin(i960Pinout::Ready960, LOW, HIGH);
+DefInputPin(i960Pinout::BLAST, LOW, HIGH);
+DefInputPin(i960Pinout::AS, LOW, HIGH);
+DefInputPin(i960Pinout::DEN, LOW, HIGH);
 
-DefOutputPin(i960Pinout::Reset960, LOW, HIGH);
-DefOutputPin(i960Pinout::Ready, LOW, HIGH);
-DefInputPin(i960Pinout::FAIL, HIGH, LOW);
-DefInputPin(i960Pinout::DEN_, LOW, HIGH);
-DefInputPin(i960Pinout::BLAST_, LOW, HIGH);
-DefInputPin(i960Pinout::W_R_, LOW, HIGH);
-#undef DefSPICSPin
+DefOutputPin(i960Pinout::INT960_0, LOW, HIGH);
+DefOutputPin(i960Pinout::INT960_1, HIGH, LOW);
+DefOutputPin(i960Pinout::INT960_2, HIGH, LOW);
+DefOutputPin(i960Pinout::INT960_3, LOW, HIGH);
+
+DefOutputPin(i960Pinout::RESET960, LOW, HIGH);
+DefOutputPin(i960Pinout::LOCK960, LOW, HIGH);
+DefInputPin(i960Pinout::HLDA960, LOW, HIGH);
+DefOutputPin(i960Pinout::HOLD960, HIGH, LOW);
+
 #undef DefInputPin
 #undef DefOutputPin
 
