@@ -26,7 +26,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef ARDUINO_PINOUT_H
 #define ARDUINO_PINOUT_H
 #include <Arduino.h>
-#include "MCUPlatform.h"
 using Address = uint32_t;
 /// @todo fix this pinout for different targets
 enum class i960Pinout : int {
@@ -269,6 +268,7 @@ struct DigitalPin {
     DigitalPin& operator=(DigitalPin&&) = delete;
     static constexpr bool isInputPin() noexcept { return false; }
     static constexpr bool isOutputPin() noexcept { return false; }
+    static constexpr auto isInputPullupPin() noexcept { return false; }
     static constexpr bool getDirection() noexcept { return false; }
     static constexpr auto getPin() noexcept { return pin; }
     static constexpr auto valid() noexcept { return isValidPin960_v<pin>; }
@@ -286,6 +286,7 @@ struct DigitalPin {
         DigitalPin& operator=(DigitalPin&&) = delete; \
         static constexpr auto isInputPin() noexcept { return false; } \
         static constexpr auto isOutputPin() noexcept { return true; } \
+        static constexpr auto isInputPullupPin() noexcept { return false; } \
         static constexpr auto getPin() noexcept { return pin; } \
         static constexpr auto getDirection() noexcept { return OUTPUT; } \
         static constexpr auto getAssertionState() noexcept { return asserted; } \
@@ -313,6 +314,7 @@ struct DigitalPin {
         DigitalPin& operator=(DigitalPin&&) = delete; \
         static constexpr auto isInputPin() noexcept { return true; } \
         static constexpr auto isOutputPin() noexcept { return false; } \
+        static constexpr auto isInputPullupPin() noexcept { return false; } \
         static constexpr auto getPin() noexcept { return pin; } \
         static constexpr auto getDirection() noexcept { return INPUT; } \
         static constexpr auto getAssertionState() noexcept { return asserted; } \
@@ -324,10 +326,34 @@ struct DigitalPin {
         static void configure() noexcept { pinMode(pin, INPUT); } \
     }
 
+#define DefInputPullupPin(pin, asserted, deasserted) \
+    template<> \
+    struct DigitalPin< pin > { \
+        static_assert(asserted != deasserted, "Asserted and deasserted must not be equal!"); \
+        DigitalPin() = delete; \
+        ~DigitalPin() = delete; \
+        DigitalPin(const DigitalPin&) = delete; \
+        DigitalPin(DigitalPin&&) = delete; \
+        DigitalPin& operator=(const DigitalPin&) = delete; \
+        DigitalPin& operator=(DigitalPin&&) = delete; \
+        static constexpr auto isInputPin() noexcept { return false; } \
+        static constexpr auto isOutputPin() noexcept { return false; }   \
+        static constexpr auto isInputPullupPin() noexcept { return true; } \
+        static constexpr auto getPin() noexcept { return pin; } \
+        static constexpr auto getDirection() noexcept { return INPUT_PULLUP; } \
+        static constexpr auto getAssertionState() noexcept { return asserted; } \
+        static constexpr auto getDeassertionState() noexcept { return deasserted; } \
+        [[gnu::always_inline]] inline static auto read() noexcept { return digitalRead<pin>(); } \
+        [[gnu::always_inline]] inline static bool isAsserted() noexcept { return read() == getAssertionState(); } \
+        [[gnu::always_inline]] inline static bool isDeasserted() noexcept { return read() == getDeassertionState(); } \
+        static constexpr auto valid() noexcept { return isValidPin960_v<pin>; } \
+        static void configure() noexcept { pinMode(pin, INPUT_PULLUP); } \
+    }
+
 DefInputPin(i960Pinout::MCU_READY, LOW, HIGH);
 DefInputPin(i960Pinout::FAIL960, HIGH, LOW);
 DefOutputPin(i960Pinout::SuccessfulBoot, HIGH, LOW);
-DefInputPin(i960Pinout::WaitBoot960, LOW, HIGH);
+DefInputPullupPin(i960Pinout::WaitBoot960, LOW, HIGH);
 DefOutputPin(i960Pinout::DoCycle, LOW, HIGH);
 DefOutputPin(i960Pinout::StartTransaction, LOW, HIGH);
 DefOutputPin(i960Pinout::BurstNext, LOW, HIGH);
@@ -349,6 +375,7 @@ DefOutputPin(i960Pinout::HOLD960, HIGH, LOW);
 
 #undef DefInputPin
 #undef DefOutputPin
+#undef DefInputPullupPin
 
 template<typename ... Pins>
 [[gnu::always_inline]]
