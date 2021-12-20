@@ -389,6 +389,12 @@ inline void digitalWriteBlock(decltype(HIGH) value, Pins ... pins) {
     (digitalWrite(pins, value), ...);
 }
 
+template<i960Pinout ... pins>
+[[gnu::always_inline]]
+inline void configurePins() noexcept {
+    (DigitalPin<pins>::configure(), ...);
+}
+
 template<i960Pinout pinId>
 class PinAsserter {
 public:
