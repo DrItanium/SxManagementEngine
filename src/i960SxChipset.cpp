@@ -65,7 +65,10 @@ enum class i960Pinout : int {
     PORT_A6,
     PORT_A7,
     Count,
+    LED = PORT_B0,
     CLOCK_OUT= PORT_B1,
+    RX0 = PORT_D0,
+    RX1 = PORT_D1,
     MCU_READY = PORT_D3,
     FAIL960 = PORT_D4,
     SuccessfulBoot = PORT_D5,
@@ -209,20 +212,6 @@ template<i960Pinout pin>
     }
 }
 
-class InterruptDisabler final {
-public:
-    InterruptDisabler() noexcept {
-        storage_ = SREG;
-        cli();
-    }
-    ~InterruptDisabler() noexcept {
-        SREG = storage_;
-    }
-private:
-    uint8_t storage_ = 0;
-};
-
-
 template<i960Pinout pin, decltype(HIGH) value>
 [[gnu::always_inline]]
 inline void digitalWrite() noexcept {
@@ -352,7 +341,7 @@ struct DigitalPin {
         static constexpr auto valid() noexcept { return isValidPin960_v<pin>; } \
         static void configure() noexcept { pinMode(pin, INPUT_PULLUP); } \
     }
-
+DefOutputPin(i960Pinout::LED, HIGH, LOW);
 DefInputPin(i960Pinout::MCU_READY, LOW, HIGH);
 DefInputPin(i960Pinout::FAIL960, HIGH, LOW);
 DefOutputPin(i960Pinout::SuccessfulBoot, HIGH, LOW);
@@ -415,6 +404,7 @@ public:
 [[noreturn]]
 void checksumFailureHappened() {
     DigitalPin<i960Pinout::SuccessfulBoot>::deassertPin();
+    DigitalPin<i960Pinout::LED>::assertPin();
     while(true) {
         delay(1000);
     }
@@ -433,6 +423,7 @@ void setup() {
         PinAsserter<i960Pinout::RESET960> holdInReset;
         DigitalPin<i960Pinout::WaitBoot960>::configure();
         delay(2000);
+        Serial.begin(9600); // just turn on the serial console
         configurePins<i960Pinout::DEN,
                 i960Pinout::AS,
                 i960Pinout::FAIL960,
@@ -450,7 +441,8 @@ void setup() {
                 i960Pinout::DoCycle,
                 i960Pinout::EndTransaction,
                 i960Pinout::StartTransaction,
-                i960Pinout::BurstNext>();
+                i960Pinout::BurstNext,
+                i960Pinout::LED>();
         deassertPins<i960Pinout::BurstNext,
                 i960Pinout::DoCycle,
                 i960Pinout::StartTransaction,
@@ -462,7 +454,8 @@ void setup() {
                 i960Pinout::INT960_2,
                 i960Pinout::INT960_3,
                 i960Pinout::SuccessfulBoot,
-                i960Pinout::Ready960>();
+                i960Pinout::Ready960,
+                i960Pinout::LED>();
         attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::MCU_READY)), handleREADYTrigger, FALLING);
         // wait for the chipset to release control
         while (DigitalPin<i960Pinout::WaitBoot960>::isAsserted());
