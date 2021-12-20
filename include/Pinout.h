@@ -395,6 +395,12 @@ inline void configurePins() noexcept {
     (DigitalPin<pins>::configure(), ...);
 }
 
+template<i960Pinout ... pins>
+[[gnu::always_inline]]
+inline void deassertPins() noexcept {
+    (DigitalPin<pins>::deassertPin(), ...);
+}
+
 template<i960Pinout pinId>
 class PinAsserter {
 public:

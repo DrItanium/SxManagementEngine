@@ -39,20 +39,53 @@ void checksumFailureHappened() {
         delay(1000);
     }
 }
-[[nodiscard]] bool informCPU() noexcept {
-    // you must scan the BLAST_ pin before pulsing ready, the cpu will change blast for the next transaction
-    auto isBurstLast = DigitalPin<i960Pinout::BLAST>::isAsserted();
-    DigitalPin<i960Pinout::Ready960>::pulse();
-    return isBurstLast;
-}
 
+volatile bool readyTriggered = false;
+void
+handleREADYTrigger() noexcept {
+    readyTriggered = true;
+}
 
 // the setup routine runs once when you press reset:
 void setup() {
-    // always do this first to make sure that we put the i960 into reset regardless of target
-    //pinMode(i960Pinout::Reset960, OUTPUT) ;
-    //digitalWrite<i960Pinout::Reset960, LOW>();
-    // seed random on startup to be on the safe side from analog pin A0, A1, A2, and A3
+    DigitalPin<i960Pinout::RESET960>::configure();
+    {
+        PinAsserter<i960Pinout::RESET960> holdInReset;
+        DigitalPin<i960Pinout::WaitBoot960>::configure();
+        delay(2000);
+        configurePins<i960Pinout::DEN,
+                i960Pinout::AS,
+                i960Pinout::FAIL960,
+                i960Pinout::HLDA960,
+                i960Pinout::BLAST,
+                i960Pinout::MCU_READY,
+                i960Pinout::Ready960,
+                i960Pinout::LOCK960,
+                i960Pinout::HOLD960,
+                i960Pinout::INT960_0,
+                i960Pinout::INT960_1,
+                i960Pinout::INT960_2,
+                i960Pinout::INT960_3,
+                i960Pinout::SuccessfulBoot,
+                i960Pinout::DoCycle,
+                i960Pinout::EndTransaction,
+                i960Pinout::StartTransaction,
+                i960Pinout::BurstNext>();
+        deassertPins<i960Pinout::BurstNext,
+                i960Pinout::DoCycle,
+                i960Pinout::StartTransaction,
+                i960Pinout::EndTransaction,
+                i960Pinout::LOCK960,
+                i960Pinout::HOLD960,
+                i960Pinout::INT960_0,
+                i960Pinout::INT960_1,
+                i960Pinout::INT960_2,
+                i960Pinout::INT960_3,
+                i960Pinout::SuccessfulBoot,
+                i960Pinout::Ready960>();
+        // wait for the chipset to release control
+        while (DigitalPin<i960Pinout::WaitBoot960>::isAsserted());
+    }
 }
 // ----------------------------------------------------------------
 // state machine
@@ -88,6 +121,12 @@ void setup() {
 // Td -> Td after signaling ready and burst (blast high)
 // Ti -> TChecksumFailure if FAIL is asserted
 // NOTE: Tw may turn out to be synthetic
+[[nodiscard]] bool informCPU() noexcept {
+    // you must scan the BLAST_ pin before pulsing ready, the cpu will change blast for the next transaction
+    auto isBurstLast = DigitalPin<i960Pinout::BLAST>::isAsserted();
+    DigitalPin<i960Pinout::Ready960>::pulse();
+    return isBurstLast;
+}
 
 void loop() {
 
