@@ -30,7 +30,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// - C++17
 /// Board Platform: MightyCore
 #include <Arduino.h>
-/// @todo fix this pinout for different targets
+constexpr auto EnableConsole = false;
 enum class i960Pinout : int {
     PORT_B0 = 0,
     PORT_B1,
@@ -369,18 +369,6 @@ DefOutputPin(i960Pinout::HOLD960, HIGH, LOW);
 #undef DefOutputPin
 #undef DefInputPullupPin
 
-template<typename ... Pins>
-[[gnu::always_inline]]
-inline void setupPins(decltype(OUTPUT) direction, Pins ... pins) {
-    (pinMode(pins, direction), ...);
-}
-
-template<typename ... Pins>
-[[gnu::always_inline]]
-inline void digitalWriteBlock(decltype(HIGH) value, Pins ... pins) {
-    (digitalWrite(pins, value), ...);
-}
-
 template<i960Pinout ... pins>
 [[gnu::always_inline]]
 inline void configurePins() noexcept {
@@ -403,6 +391,9 @@ public:
 
 [[noreturn]]
 void checksumFailureHappened() {
+    if constexpr (EnableConsole) {
+        Serial.println(F("CHECKSUM FAILURE!"));
+    }
     DigitalPin<i960Pinout::SuccessfulBoot>::deassertPin();
     DigitalPin<i960Pinout::LED>::assertPin();
     while(true) {
@@ -423,7 +414,10 @@ void setup() {
         PinAsserter<i960Pinout::RESET960> holdInReset;
         DigitalPin<i960Pinout::WaitBoot960>::configure();
         delay(2000);
-        Serial.begin(9600); // just turn on the serial console
+        if constexpr (EnableConsole) {
+            Serial.begin(9600); // just turn on the serial console
+            Serial.println(F("i960Sx Management Engine"));
+        }
         configurePins<i960Pinout::DEN,
                 i960Pinout::AS,
                 i960Pinout::FAIL960,
@@ -472,6 +466,9 @@ void setup() {
     }
     DigitalPin<i960Pinout::SuccessfulBoot>::assertPin();
     attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL960)), checksumFailureHappened, RISING);
+    if constexpr (EnableConsole) {
+        Serial.println(F("Successful boot!"));
+    }
 }
 // ----------------------------------------------------------------
 // state machine
