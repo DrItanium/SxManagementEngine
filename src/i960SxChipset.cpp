@@ -83,9 +83,22 @@ void setup() {
                 i960Pinout::INT960_3,
                 i960Pinout::SuccessfulBoot,
                 i960Pinout::Ready960>();
+        attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::MCU_READY)), handleREADYTrigger, FALLING);
         // wait for the chipset to release control
         while (DigitalPin<i960Pinout::WaitBoot960>::isAsserted());
     }
+    while (DigitalPin<i960Pinout::FAIL960>::read() == LOW) {
+        if (DigitalPin<i960Pinout::DEN>::isAsserted()) {
+            break;
+        }
+    }
+    while (DigitalPin<i960Pinout::FAIL960>::read() == HIGH) {
+        if (DigitalPin<i960Pinout::DEN>::isAsserted()) {
+            break;
+        }
+    }
+    DigitalPin<i960Pinout::SuccessfulBoot>::assertPin();
+    attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL960)), checksumFailureHappened, RISING);
 }
 // ----------------------------------------------------------------
 // state machine
@@ -129,6 +142,22 @@ void setup() {
 }
 
 void loop() {
+    // wait for DEN to go low
+    while (DigitalPin<i960Pinout::DEN>::isDeasserted());
+    DigitalPin<i960Pinout::StartTransaction>::pulse();  // tell the chipset to start the transaction
 
+    do {
+       DigitalPin<i960Pinout::DoCycle>::pulse(); // tell the chipset that a new transaction cycle is starting
+       while (!readyTriggered);
+       readyTriggered = false;
+       if (informCPU()) {
+           DigitalPin<i960Pinout::EndTransaction>::pulse(); // tell the chipset we are done with the transaction
+           break;
+       } else {
+           // if we got here then it is a burst transaction. Let the chipset know to continue the current transaction
+           DigitalPin<i960Pinout::BurstNext>::pulse();
+       }
+    } while (true);
+    // okay now just loop back around and wait for the next data cycle
 }
 
