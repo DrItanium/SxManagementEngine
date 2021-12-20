@@ -67,28 +67,27 @@ enum class i960Pinout : int {
     Count,
     LED = PORT_B0,
     CLOCK_OUT= PORT_B1,
+    WaitBoot960 = PORT_B3,
+    INT960_0 = PORT_B4,
+    INT960_1 = PORT_B5,
+    INT960_2 = PORT_B6,
+    INT960_3 = PORT_B7,
     RX0 = PORT_D0,
     RX1 = PORT_D1,
-    MCU_READY = PORT_D3,
-    FAIL960 = PORT_D4,
-    SuccessfulBoot = PORT_D5,
-    WaitBoot960 = PORT_D6,
-    DoCycle = PORT_C0,
-    StartTransaction = PORT_C1,
-    BurstNext = PORT_C2,
-    EndTransaction = PORT_C3,
-    Ready960 = PORT_C4,
-    BLAST = PORT_C5,
-    AS = PORT_C6,
-    DEN = PORT_C7,
-    INT960_0 = PORT_A0,
-    INT960_1 = PORT_A1,
-    INT960_2 = PORT_A2,
-    INT960_3 = PORT_A3,
-    RESET960 = PORT_A4,
-    LOCK960 = PORT_A5,
-    HLDA960 = PORT_A6,
-    HOLD960 = PORT_A7,
+    MCU_READY = PORT_D2,
+    FAIL960 = PORT_D3,
+    DoCycle = PORT_D4,
+    StartTransaction = PORT_D5,
+    BurstNext = PORT_D6,
+    EndTransaction = PORT_D7,
+    RESET960 = PORT_C0,
+    HLDA960 = PORT_C1,
+    HOLD960 = PORT_C2,
+    DEN = PORT_C3,
+    BLAST = PORT_C4,
+    LOCK960 = PORT_C5,
+    Ready960 = PORT_C6,
+    SuccessfulBoot = PORT_C7,
 };
 
 [[gnu::always_inline]]
@@ -352,7 +351,6 @@ DefOutputPin(i960Pinout::BurstNext, LOW, HIGH);
 DefOutputPin(i960Pinout::EndTransaction, LOW, HIGH);
 DefOutputPin(i960Pinout::Ready960, LOW, HIGH);
 DefInputPin(i960Pinout::BLAST, LOW, HIGH);
-DefInputPin(i960Pinout::AS, LOW, HIGH);
 DefInputPin(i960Pinout::DEN, LOW, HIGH);
 
 DefOutputPin(i960Pinout::INT960_0, LOW, HIGH);
@@ -419,7 +417,6 @@ void setup() {
             Serial.println(F("i960Sx Management Engine"));
         }
         configurePins<i960Pinout::DEN,
-                i960Pinout::AS,
                 i960Pinout::FAIL960,
                 i960Pinout::HLDA960,
                 i960Pinout::BLAST,
