@@ -23,76 +23,86 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-/// i960Sx management engine, based on atmega1284p with fuses set for:
-/// - 20Mhz crystal
-/// - D1 acts as CLKO
-/// Language options:
+/// i960Sx management engine, based on atmega4809 with fuses set for:
 /// - C++17
-/// Board Platform: MightyCore
+/// Board Platform: MegaCoreX
 #include <Arduino.h>
 constexpr auto EnableConsole = false;
 enum class i960Pinout : int {
-    PORT_B0 = 0,
-    PORT_B1,
-    PORT_B2,
-    PORT_B3,
-    PORT_B4,
-    PORT_B5,
-    PORT_B6,
-    PORT_B7,
-    PORT_D0,
-    PORT_D1,
-    PORT_D2,
-    PORT_D3,
-    PORT_D4,
-    PORT_D5,
-    PORT_D6,
-    PORT_D7,
-    PORT_C0,
-    PORT_C1,
-    PORT_C2,
-    PORT_C3,
-    PORT_C4,
-    PORT_C5,
-    PORT_C6,
-    PORT_C7,
-    PORT_A0,
-    PORT_A1,
-    PORT_A2,
-    PORT_A3,
-    PORT_A4,
-    PORT_A5,
-    PORT_A6,
-    PORT_A7,
-    Count,
-    LED = PORT_B0,
-    CLOCK_OUT= PORT_B1,
-    WaitBoot960 = PORT_B3,
-    INT960_0 = PORT_B4,
-    INT960_1 = PORT_B5,
-    INT960_2 = PORT_B6,
-    INT960_3 = PORT_B7,
-    RX0 = PORT_D0,
-    RX1 = PORT_D1,
-    MCU_READY = PORT_D2,
-    FAIL960 = PORT_D3,
-    DoCycle = PORT_D4,
-    StartTransaction = PORT_D5,
-    BurstNext = PORT_D6,
-    EndTransaction = PORT_D7,
-    RESET960 = PORT_C0,
-    HLDA960 = PORT_C1,
-    HOLD960 = PORT_C2,
-    DEN = PORT_C3,
-    BLAST = PORT_C4,
-    LOCK960 = PORT_C5,
-    Ready960 = PORT_C6,
-    SuccessfulBoot = PORT_C7,
+    SRC0_TRIGGER_INT1 = PIN_PF0,
+    SRC1_TRIGGER_INT1 = PIN_PF1,
+    BUS_LOCKED = PIN_PF2,
+    INT1 = PIN_PF3,
+    LOCK = PIN_PF4,
+    LOCK_REQUESTED = PIN_PF5,
+    BOOT_SUCCESSFUL = PIN_PE0,
+    DO_CYCLE = PIN_PE1,
+    BURST_LAST_ME = PIN_PE2,
+    IN_TRANSACTION = PIN_PE3,
+    SRC0_TRIGGER_INT3 = PIN_PC0,
+    SRC1_TRIGGER_INT3 = PIN_PC1,
+    READY_IN = PIN_PC2,
+    INT3 = PIN_PC3,
+    CLK2 = PIN_PA0,
+    SRC0_TRIGGER_INT0 = PIN_PA1,
+    SRC1_TRIGGER_INT0 = PIN_PA7,
+    INT0 = PIN_PA3,
+    CLK = PIN_PA2,
+    SRC0_TRIGGER_INT2 = PIN_PD0,
+    SRC1_TRIGGER_INT2 = PIN_PD1,
+    ME_BOOTED = PIN_PD2,
+    INT2 = PIN_PD3,
+    BLAST = PIN_PD4,
+    DEN = PIN_PD5,
+    FAIL = PIN_PD6,
+    READY960 = PIN_PD7,
 };
+
+enum class PinStyle {
+    Input,
+    Output,
+    InputPullup,
+};
+
+template<PinStyle style>
+constexpr decltype(OUTPUT) PinDirection_v = -1;
+template<> constexpr auto PinDirection_v<PinStyle::Input> = INPUT;
+
+template<i960Pinout pin, PinStyle style>
+struct DigitalPin {
+    DigitalPin() = delete;
+    ~DigitalPin() = delete;
+    DigitalPin(const DigitalPin&) = delete;
+    DigitalPin(DigitalPin&&) = delete;
+    DigitalPin& operator=(const DigitalPin&) = delete;
+    DigitalPin& operator=(DigitalPin&&) = delete;
+    static constexpr bool isInputPin() noexcept { return style == PinStyle::Input; }
+    static constexpr bool isOutputPin() noexcept { return style == PinStyle::Output; }
+    static constexpr bool isInputPullupPin() noexcept { return style == PinStyle::InputPullup; }
+    static constexpr bool getDirection() noexcept { 
+        if constexpr (style == 
+        return false;   
+    }
+
+    static constexpr bool getPin() noexcept { return pin; }
+};
+
+#define OutputPin(pin, asserted, deasserted) \
+    template<> \
+    struct DigitalPin< pin > { \
+        static_assert(asserted != deasserted, "Asserted and deasserted are the same value!"); \
+        DigitalPin() = delete; \
+        ~DigitalPin() = delete; \
+        DigitalPin(const DigitalPin&) = delete; \
+        DigitalPin(DigitalPin&&) = delete; \
+        DigitalPin& operator=(const DigitalPin&) = delete; \
+        DigitalPin& operator=(DigitalPin&&) = delete; \
+        static 
+
 
 [[gnu::always_inline]]
 inline void digitalWrite(i960Pinout ip, decltype(HIGH) value) {
-    digitalWrite(static_cast<int>(ip), value);
+    digitalWriteFast(static_cast<int>(ip), value);
 }
 
 [[gnu::always_inline]]
