@@ -67,9 +67,12 @@ enum class PinStyle {
 template<PinStyle style>
 constexpr decltype(OUTPUT) PinDirection_v = -1;
 template<> constexpr auto PinDirection_v<PinStyle::Input> = INPUT;
+template<> constexpr auto PinDirection_v<PinStyle::InputPullup> = INPUT_PULLUP;
+template<> constexpr auto PinDirection_v<PinStyle::Output> = OUTPUT;
 
-template<i960Pinout pin, PinStyle style>
+template<i960Pinout pin, PinStyle style, decltype(HIGH) asserted, decltype(HIGH) deasserted>
 struct DigitalPin {
+    static_assert(asserted != deasserted, "asserted cannot be equal to deasserted");
     DigitalPin() = delete;
     ~DigitalPin() = delete;
     DigitalPin(const DigitalPin&) = delete;
@@ -79,26 +82,35 @@ struct DigitalPin {
     static constexpr bool isInputPin() noexcept { return style == PinStyle::Input; }
     static constexpr bool isOutputPin() noexcept { return style == PinStyle::Output; }
     static constexpr bool isInputPullupPin() noexcept { return style == PinStyle::InputPullup; }
-    static constexpr bool getDirection() noexcept { 
-        if constexpr (style == 
-        return false;   
+    static constexpr auto getDirection() noexcept { return PinDirection_v<style>; }
+    static constexpr auto getPin() noexcept { return pin; }
+    static void configure() noexcept {
+        ::pinMode(static_cast<int>(getPin()), getDirection());
     }
-
-    static constexpr bool getPin() noexcept { return pin; }
+    static auto read() noexcept {
+        return digitalReadFast(static_cast<int>(pin));
+    }
+    static bool inputAsserted() noexcept { return read() == asserted; }
+    static bool inputDeasserted() noexcept { return read() == deasserted; }
+    static void write(decltype(HIGH) value) noexcept {
+        digitalWriteFast(static_cast<int>(pin), value);
+    }
+    static void assertPin() noexcept { write(asserted); }
+    static void deassertPin() noexcept { write(deasserted); }
+    static void pulse() noexcept {
+        assertPin();
+        __builtin_avr_nops(2);
+        deassertPin();
+    }
 };
 
-#define OutputPin(pin, asserted, deasserted) \
-    template<> \
-    struct DigitalPin< pin > { \
-        static_assert(asserted != deasserted, "Asserted and deasserted are the same value!"); \
-        DigitalPin() = delete; \
-        ~DigitalPin() = delete; \
-        DigitalPin(const DigitalPin&) = delete; \
-        DigitalPin(DigitalPin&&) = delete; \
-        DigitalPin& operator=(const DigitalPin&) = delete; \
-        DigitalPin& operator=(DigitalPin&&) = delete; \
-        static 
+template<i960Pinout pin, decltype(HIGH) asserted, decltype(HIGH) deasserted>
+using OutputPin = DigitalPin<pin, PinStyle::Output, asserted, deasserted>;
 
+template<i960Pinout pin, decltype(HIGH) asserted, decltype(HIGH) deasserted>
+using InputPin = DigitalPin<pin, PinStyle::Input, asserted, deasserted>;
+template<i960Pinout pin, decltype(HIGH) asserted, decltype(HIGH) deasserted>
+using InputPullupPin = DigitalPin<pin, PinStyle::InputPullup, asserted, deasserted>;
 
 [[gnu::always_inline]]
 inline void digitalWrite(i960Pinout ip, decltype(HIGH) value) {
