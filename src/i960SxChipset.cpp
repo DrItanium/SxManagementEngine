@@ -572,12 +572,18 @@ void loop() {
                // this has the added benefit of providing proper synchronization between two different clock domains
                // for example, the GCM4 runs at 120MHz while this chip runs at 20MHz. Making the chipset wait provides implicit
                // synchronization
+               if constexpr (currentConfiguration.debugConsoleActive()) {
+                   Serial1.println("Asserting DoCycle!");
+               }
                DoCyclePin :: assertPin();
                // we have entered a new transaction so increment the counter
                // we want to count the number of transaction cycles
                ++numCycles;
                // now wait for the chipset to tell us that it has satisifed the current part of the transaction
                if (BlastPin::inputAsserted()) {
+                   if constexpr (currentConfiguration.debugConsoleActive()) {
+                       Serial1.println("Burst Last!");
+                   }
                    // if it turns out that blast is asserted then we break out of this loop and handle it specially
                    break;
                }
@@ -585,15 +591,27 @@ void loop() {
                waitForCycleEnd();
                // let the chipset know that the operation will continue
                {
+                   if constexpr (currentConfiguration.debugConsoleActive()) {
+                       Serial1.println("Assert Burst Next and Wait!");
+                   }
                    BurstNext::assertPin();
                    informCPUAndWait();
                    BurstNext::deassertPin();
+                   if constexpr (currentConfiguration.debugConsoleActive()) {
+                       Serial1.println("Waiting for next cycle!");
+                   }
                }
            }
            // the end of the current transaction needs to be straighline code
            waitForCycleEnd();
            // okay tell the chipset transaction complete
+            if constexpr (currentConfiguration.debugConsoleActive()) {
+                Serial1.println("Transaction Complete!");
+            }
             InTransactionPin :: deassertPin();
+        }
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            Serial1.println("Tell CPU about last part of transaction!");
         }
         // we have to tie off the transaction itself first
         // let the i960 know and then wait for the chipset to pull MCU READY high
