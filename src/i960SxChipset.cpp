@@ -511,9 +511,12 @@ volatile byte numCycles = 0;
 [[noreturn]]
 void loop() {
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Enterring Loop!");
+        Serial1.println("Entering Loop!");
     }
     for (;;) {
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            Serial1.println("Loop Top!");
+        }
         // introduce some delay to make sure the bus has time to recover properly
         waitOneBusCycle();
         // okay so we need to wait for DEN to go low
