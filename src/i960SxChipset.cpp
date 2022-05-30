@@ -95,8 +95,9 @@ constexpr TargetConfiguration currentConfiguration{
         TargetConfiguration::Flags::HasExternalClockSource |
         TargetConfiguration::Flags::EnableCommunicationChannel |
         TargetConfiguration::Flags::BuiltinInterruptController |
-        TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped |
-        TargetConfiguration::Flags::EnableDebugConsole ,
+        TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
+        //| TargetConfiguration::Flags::EnableDebugConsole
+        ,
         1 /* version */,
         64 /* delay */ };
 enum class i960Pinout : int {
