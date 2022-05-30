@@ -60,6 +60,7 @@ public:
          * @brief Due to a screwup in the expanded processor board, in transaction and boot successful are swapped.
          */
         InTransactionAndBootSuccessfulAreSwapped = (1 << 6),
+
     };
 
 public:
@@ -92,11 +93,11 @@ private:
     byte maxNumberOfCyclesBeforePause_;
 };
 constexpr TargetConfiguration currentConfiguration{
-        TargetConfiguration::Flags::HasExternalClockSource |
-        TargetConfiguration::Flags::EnableCommunicationChannel |
-        TargetConfiguration::Flags::BuiltinInterruptController |
-        TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
-        //| TargetConfiguration::Flags::EnableDebugConsole
+        TargetConfiguration::Flags::HasExternalClockSource
+        | TargetConfiguration::Flags::EnableCommunicationChannel
+        | TargetConfiguration::Flags::BuiltinInterruptController
+        | TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
+        | TargetConfiguration::Flags::EnableDebugConsole
         ,
         1 /* version */,
         64 /* delay */ };
