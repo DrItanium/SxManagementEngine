@@ -56,6 +56,10 @@ public:
          */
         BuiltinInterruptController = (1 << 4),
         EnableDebugConsole = (1 << 5),
+        /**
+         * @brief Due to a screwup in the expanded processor board, in transaction and boot successful are swapped.
+         */
+        InTransactionAndBootSuccessfulAreSwapped = (1 << 6),
     };
 
 public:
@@ -81,6 +85,7 @@ public:
     constexpr auto getMaxNumberOfCyclesBeforePause() const noexcept { return maxNumberOfCyclesBeforePause_; }
     constexpr auto getVersion() const noexcept { return version_; }
     constexpr auto debugConsoleActive() const noexcept { return hasFlagSet<Flags::EnableDebugConsole>(); }
+    constexpr auto inTransactionAndBootSuccessfulSwapped() const noexcept { return hasFlagSet<Flags::InTransactionAndBootSuccessfulAreSwapped>(); }
 private:
     uint16_t configuration_;
     byte version_;
@@ -90,6 +95,7 @@ constexpr TargetConfiguration currentConfiguration{
         TargetConfiguration::Flags::HasExternalClockSource |
         TargetConfiguration::Flags::EnableCommunicationChannel |
         TargetConfiguration::Flags::BuiltinInterruptController |
+        TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped |
         TargetConfiguration::Flags::EnableDebugConsole ,
         1 /* version */,
         64 /* delay */ };
@@ -303,7 +309,12 @@ handleChecksumFail() noexcept {
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.println("Checksum failure!");
     }
-    BootSuccessfulPin :: deassertPin();
+    if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
+        InTransactionPin :: deassertPin();
+    } else {
+        BootSuccessfulPin :: deassertPin();
+
+    }
     while(true) {
         delay(1000);
     }
@@ -446,7 +457,11 @@ void setup() {
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.println("Boot successful signalling!");
     }
-    BootSuccessfulPin::assertPin();
+    if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
+        InTransactionPin::assertPin();
+    } else {
+        BootSuccessfulPin::assertPin();
+    }
     // at this point, if we ever go from low to high again then we have a checksum failure
     attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL)), handleChecksumFail, RISING);
     if constexpr (currentConfiguration.debugConsoleActive()) {
@@ -521,7 +536,14 @@ void loop() {
         waitOneBusCycle();
         // okay so we need to wait for DEN to go low
         while (DenPin::inputDeasserted());
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            Serial1.println("In Data Cycle!");
+        }
+
         if (numCycles >= currentConfiguration.getMaxNumberOfCyclesBeforePause()) {
+            if constexpr (currentConfiguration.debugConsoleActive()) {
+                Serial1.println("Pausing!");
+            }
             // provide a pause/cooldown period after a new data request to make sure that the bus has time to "cool".
             // Failure to do so can cause very strange checksum failures / chipset faults to happen with the GCM4
             // this is not an issue since the i960 will wait until ready is signaled
@@ -533,7 +555,15 @@ void loop() {
         }
         // now do the logic
         {
-           InTransactionPin :: assertPin(); // tell the chipset we are starting a transaction
+            if constexpr (currentConfiguration.debugConsoleActive()) {
+                Serial1.println("Asserting InTransaction!");
+            }
+            // tell the chipset we are starting a transaction
+            if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
+                BootSuccessfulPin :: assertPin();
+            } else {
+                InTransactionPin :: assertPin();
+            }
            // okay now we need to emulate a wait loop to allow the chipset time to do its thing
            for (;;) {
                // instead of pulsing do cycle, we just assert it while we wait
@@ -560,8 +590,12 @@ void loop() {
            }
            // the end of the current transaction needs to be straighline code
            waitForCycleEnd();
-           // okay tell teh chipset transaction complete
-           InTransactionPin::deassertPin();
+           // okay tell the chipset transaction complete
+            if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
+                BootSuccessfulPin :: deassertPin();
+            } else {
+                InTransactionPin :: deassertPin();
+            }
         }
         // we have to tie off the transaction itself first
         // let the i960 know and then wait for the chipset to pull MCU READY high
