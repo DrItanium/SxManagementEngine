@@ -89,7 +89,8 @@ private:
 constexpr TargetConfiguration currentConfiguration{
         TargetConfiguration::Flags::HasExternalClockSource |
         TargetConfiguration::Flags::EnableCommunicationChannel |
-        TargetConfiguration::Flags::BuiltinInterruptController,
+        TargetConfiguration::Flags::BuiltinInterruptController |
+        TargetConfiguration::Flags::EnableDebugConsole ,
         1 /* version */,
         64 /* delay */ };
 enum class i960Pinout : int {
@@ -210,7 +211,7 @@ using Src1Trigger0Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT0, LOW, HIGH>;
 using LockRequestedPin = InputPin<i960Pinout::LOCK_REQUESTED, LOW, HIGH>;
 using ReadyInputPin = InputPin<i960Pinout::READY_IN, LOW, HIGH>;
 
-using BootSuccessfulPin = OutputPin<i960Pinout::BOOT_SUCCESSFUL, LOW, HIGH>;
+using BootSuccessfulPin = OutputPin<i960Pinout::BOOT_SUCCESSFUL, HIGH, LOW>; // protocol assumed is active high
 using DoCyclePin = OutputPin<i960Pinout::DO_CYCLE, LOW, HIGH>;
 using BurstNext = OutputPin<i960Pinout::BURST_LAST_ME, HIGH, LOW>;
 using InTransactionPin = OutputPin<i960Pinout::IN_TRANSACTION, LOW, HIGH>;
@@ -299,6 +300,9 @@ public:
 [[noreturn]]
 void
 handleChecksumFail() noexcept {
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("Checksum failure!");
+    }
     BootSuccessfulPin :: deassertPin();
     while(true) {
         delay(1000);
@@ -326,17 +330,29 @@ configureClockSource() noexcept {
     }
 }
 void configurePIC() noexcept {
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("Setting up PIC!");
+    }
     if constexpr (currentConfiguration.getVersion() == 1) {
         // okay so configure the event and logic system for version 1
         // connect 10MHz clock to all CCLs
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            Serial1.println("Setting up Event0!");
+        }
         Event0.set_generator(gen0::pin_pa2);
         Event0.set_generator(user::ccl0_event_b);
         Event0.set_generator(user::ccl1_event_b);
         Event0.set_generator(user::ccl2_event_b);
         Event0.set_generator(user::ccl3_event_b);
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            Serial1.println("Setting up Event1!");
+        }
         // use PA7 as a CCL input
         Event1.set_generator(gen1::pin_pa7);
         Event1.set_user(user::ccl0_event_a);
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            Serial1.println("Setting up CCLs!");
+        }
         // setup Logic0 for int0 trigger but keep the truth table for the end
         Logic0.edgedetect = edgedetect::enable;
         Logic0.filter = filter::sync;
@@ -391,6 +407,9 @@ void configurePIC() noexcept {
         Event0.start();
         Event1.start();
     }
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("PIC Configured!");
+    }
 }
 // the setup routine runs once when you press reset:
 void setup() {
@@ -400,8 +419,8 @@ void setup() {
     BootedPin ::assertPin();
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.swap(1);
-        Serial1.begin(115200);
-        Serial1.println(F("i960 Management Engine"));
+        Serial1.begin(9600);
+        Serial1.println("i960 Management Engine");
     }
     setupPins();
     if constexpr (currentConfiguration.enableCommunicationChannel()) {
@@ -424,9 +443,15 @@ void setup() {
             break;
         }
     }
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("Boot successful signalling!");
+    }
     BootSuccessfulPin::assertPin();
     // at this point, if we ever go from low to high again then we have a checksum failure
     attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL)), handleChecksumFail, RISING);
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("Interrupt attached!");
+    }
 }
 // ----------------------------------------------------------------
 // state machine
@@ -485,6 +510,9 @@ inline void waitForCycleEnd() noexcept {
 volatile byte numCycles = 0;
 [[noreturn]]
 void loop() {
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("Enterring Loop!");
+    }
     for (;;) {
         // introduce some delay to make sure the bus has time to recover properly
         waitOneBusCycle();
