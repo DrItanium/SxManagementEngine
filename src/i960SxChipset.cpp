@@ -203,6 +203,21 @@ inline void pinMode(i960Pinout ip, decltype(INPUT) value) {
 inline auto digitalRead(i960Pinout ip) {
     return digitalRead(static_cast<int>(ip));
 }
+template<bool condition, typename A, typename B>
+struct ConditionalSelector {
+public:
+    using SelectedType = B;
+public:
+    ConditionalSelector() = delete;
+    ~ConditionalSelector() = delete;
+    ConditionalSelector(const ConditionalSelector&) = delete;
+    ConditionalSelector(ConditionalSelector&&) = delete;
+    ConditionalSelector& operator=(const ConditionalSelector&) = delete;
+    ConditionalSelector& operator=(ConditionalSelector&&) = delete;
+
+};
+
+
 using DenPin = InputPin<i960Pinout::DEN, LOW, HIGH>;
 using BlastPin = InputPin<i960Pinout::BLAST, LOW, HIGH>;
 using FailPin = InputPin<i960Pinout::FAIL, HIGH, LOW>;
@@ -217,10 +232,10 @@ using Src1Trigger0Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT0, LOW, HIGH>;
 using LockRequestedPin = InputPin<i960Pinout::LOCK_REQUESTED, LOW, HIGH>;
 using ReadyInputPin = InputPin<i960Pinout::READY_IN, LOW, HIGH>;
 
-using BootSuccessfulPin = OutputPin<i960Pinout::BOOT_SUCCESSFUL, HIGH, LOW>; // protocol assumed is active high
+using BootSuccessfulPin = OutputPin<currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::IN_TRANSACTION : i960Pinout::BOOT_SUCCESSFUL, HIGH, LOW>; // protocol assumed is active high
 using DoCyclePin = OutputPin<i960Pinout::DO_CYCLE, LOW, HIGH>;
 using BurstNext = OutputPin<i960Pinout::BURST_LAST_ME, HIGH, LOW>;
-using InTransactionPin = OutputPin<i960Pinout::IN_TRANSACTION, LOW, HIGH>;
+using InTransactionPin = OutputPin<currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::BOOT_SUCCESSFUL : i960Pinout::IN_TRANSACTION, LOW, HIGH>;
 using Int0Pin = OutputPin<i960Pinout::INT0, HIGH, LOW>;
 using Int1Pin = OutputPin<i960Pinout::INT1, HIGH, LOW>;
 using Int2Pin = OutputPin<i960Pinout::INT2, HIGH, LOW>;
@@ -309,12 +324,7 @@ handleChecksumFail() noexcept {
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.println("Checksum failure!");
     }
-    if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
-        InTransactionPin :: deassertPin();
-    } else {
-        BootSuccessfulPin :: deassertPin();
-
-    }
+    BootSuccessfulPin :: deassertPin();
     while(true) {
         delay(1000);
     }
@@ -457,11 +467,7 @@ void setup() {
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.println("Boot successful signalling!");
     }
-    if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
-        InTransactionPin::assertPin();
-    } else {
-        BootSuccessfulPin::assertPin();
-    }
+    BootSuccessfulPin::assertPin();
     // at this point, if we ever go from low to high again then we have a checksum failure
     attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL)), handleChecksumFail, RISING);
     if constexpr (currentConfiguration.debugConsoleActive()) {
@@ -559,11 +565,7 @@ void loop() {
                 Serial1.println("Asserting InTransaction!");
             }
             // tell the chipset we are starting a transaction
-            if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
-                BootSuccessfulPin :: assertPin();
-            } else {
-                InTransactionPin :: assertPin();
-            }
+            InTransactionPin :: assertPin();
            // okay now we need to emulate a wait loop to allow the chipset time to do its thing
            for (;;) {
                // instead of pulsing do cycle, we just assert it while we wait
@@ -591,11 +593,7 @@ void loop() {
            // the end of the current transaction needs to be straighline code
            waitForCycleEnd();
            // okay tell the chipset transaction complete
-            if constexpr (currentConfiguration.inTransactionAndBootSuccessfulSwapped()) {
-                BootSuccessfulPin :: deassertPin();
-            } else {
-                InTransactionPin :: deassertPin();
-            }
+            InTransactionPin :: deassertPin();
         }
         // we have to tie off the transaction itself first
         // let the i960 know and then wait for the chipset to pull MCU READY high
