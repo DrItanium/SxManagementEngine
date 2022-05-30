@@ -29,9 +29,70 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Arduino.h>
 
 /// @todo implement a better configuration setup
-constexpr auto EnableExternalClockSource = true; // true for the expanded processor card
-constexpr auto EnableClockOutputPort = false; // false on the expanded processor card
-constexpr auto EnableCommunicationChannel = true; // true on the expanded processor card
+class TargetConfiguration {
+public:
+    enum Flags : uint16_t {
+/**
+ * @brief Is this board using an external 20Mhz clock source? If so configure the ME to use that instead
+ */
+        HasExternalClockSource = (1 << 0),
+/**
+ * @brief Should the ME emit it core clock source? If true then PA7 becomes a CLKO pin
+ */
+        EnableClockOutput = (1 << 1),
+/**
+ * @brief Should the ME use PA4,5,6 as a serial communication channel for configuration purposes?
+ */
+        EnableCommunicationChannel = (1 << 2) ,
+/**
+ * @brief For some designs, it is important to introduce a one cycle wait state into the code at specific points for timing purposes.
+ * Enable this if you're running into problems with random checksum fails during execution.
+ */
+        EnableOneCycleWaitStates = (1 << 3),
+        /**
+         * @brief If set, then the CCLs of the ME are used for edge detection of interrupt sources
+         */
+        BuiltinInterruptController = (1 << 4),
+    };
+
+public:
+    constexpr explicit TargetConfiguration(Flags flags) noexcept : configuration_(static_cast<uint16_t>(flags)) { }
+    template<Flags flag>
+    [[nodiscard]] constexpr bool hasFlagSet() const noexcept {
+        return (configuration_ & static_cast<uint16_t>(flag)) != 0;
+    }
+    template<Flags flag>
+    [[nodiscard]] constexpr bool hasFlagClear() const noexcept {
+        return (configuration_ & static_cast<uint16_t>(flag)) == 0;
+    }
+    constexpr auto useExternalClockSource() const noexcept { return hasFlagSet<Flags::HasExternalClockSource>(); }
+    constexpr auto useInternalOscillator() const noexcept { return hasFlagClear<Flags::HasExternalClockSource>(); }
+    constexpr auto hasPICBuiltin() const noexcept { return hasFlagSet<Flags::BuiltinInterruptController>(); }
+    constexpr auto emitClockSignalOnPA7() const noexcept { return hasFlagSet<Flags::EnableClockOutput>(); }
+    constexpr auto enableOneCycleWaitStates() const noexcept { return hasFlagSet<Flags::EnableOneCycleWaitStates>(); }
+    constexpr auto enableCommunicationChannel() const noexcept { return hasFlagSet<Flags::EnableCommunicationChannel>(); }
+private:
+    uint16_t configuration_;
+};
+enum class MEVersion {
+    /**
+     * @brief Classic Management Engine Processor
+     */
+    Version0,
+    /**
+     * @brief Updated management engine version meant for expanded processor board
+     */
+    Version1,
+    /**
+     * @brief Management Engine meant for type 2.01 single board design
+     */
+    Version2,
+};
+/// @todo link MEVersion to a target configuration
+constexpr TargetConfiguration currentConfiguration{
+        TargetConfiguration::Flags::HasExternalClockSource |
+        TargetConfiguration::Flags::EnableCommunicationChannel |
+        TargetConfiguration::Flags::BuiltinInterruptController};
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
@@ -169,6 +230,11 @@ template<typename ... pins>
 inline void configurePins() noexcept {
     (pins::configure(), ...);
 }
+template<typename ... pins>
+[[gnu::always_inline]]
+inline void deassertPins() noexcept {
+    (pins::deassertPin(), ...);
+}
 void
 setupPins() noexcept {
     configurePins<FailPin, BlastPin , DenPin ,
@@ -183,17 +249,11 @@ setupPins() noexcept {
     // the lock pin is special as it is an open collector pin, we want to stay off of it as much as possible
     LockPin::configure(INPUT);
     // make all outputs deasserted
-    Int0Pin::deassertPin();
-    Int1Pin::deassertPin();
-    Int2Pin::deassertPin();
-    Int3Pin::deassertPin();
-    BootedPin::deassertPin();
-    ReadySyncPin :: deassertPin();
-    BootSuccessfulPin :: deassertPin();
-    InTransactionPin :: deassertPin();
-    DoCyclePin :: deassertPin();
-    BurstLastME :: deassertPin();
-    BusLockedPin :: deassertPin();
+    deassertPins<Int0Pin, Int1Pin, Int2Pin, Int3Pin, ReadySyncPin,
+            BootSuccessfulPin, InTransactionPin, DoCyclePin,
+            BurstLastME,
+            BusLockedPin>();
+    /// @todo configure event system here
 }
 template<i960Pinout pin, decltype(HIGH) value>
 [[gnu::always_inline]]
@@ -228,11 +288,6 @@ inline auto digitalRead() noexcept {
 
 
 
-template<typename ... pins>
-[[gnu::always_inline]]
-inline void deassertPins() noexcept {
-    (pins::deassertPin(), ...);
-}
 
 template<typename T>
 class PinAsserter {
@@ -254,18 +309,18 @@ handleChecksumFail() noexcept {
 void
 configureClockSource() noexcept {
     byte clkBits = 0;
-    if constexpr (EnableExternalClockSource) {
+    if constexpr (currentConfiguration.useExternalClockSource()) {
         clkBits |= 0b0000'0011;
     }
-    if constexpr (EnableClockOutputPort) {
+    if constexpr (currentConfiguration.emitClockSignalOnPA7()) {
         clkBits |= 0b1000'0000;
     }
-    if constexpr (EnableExternalClockSource || EnableClockOutputPort) {
+    if constexpr (currentConfiguration.useExternalClockSource() || currentConfiguration.emitClockSignalOnPA7()) {
         CCP = 0xD8;
         CLKCTRL.MCLKCTRLA = clkBits;
         CCP = 0xD8;
     }
-    if constexpr (EnableClockOutputPort) {
+    if constexpr (currentConfiguration.emitClockSignalOnPA7()) {
         CCP = 0xD8;
         CLKCTRL.MCLKCTRLA |= 0b0000'0010;
         CCP = 0xD8;
@@ -342,16 +397,16 @@ void loop() {
     DigitalPin<i960Pinout::StartTransaction>::pulse();  // tell the chipset to start the transaction
 
     do {
-       DigitalPin<i960Pinout::DoCycle>::pulse(); // tell the chipset that a new transaction cycle is starting
-       while (!readyTriggered);
-       readyTriggered = false;
-       if (informCPU()) {
-           DigitalPin<i960Pinout::EndTransaction>::pulse(); // tell the chipset we are done with the transaction
-           break;
-       } else {
-           // if we got here then it is a burst transaction. Let the chipset know to continue the current transaction
-           DigitalPin<i960Pinout::BurstNext>::pulse();
-       }
+        DigitalPin<i960Pinout::DoCycle>::pulse(); // tell the chipset that a new transaction cycle is starting
+        while (!readyTriggered);
+        readyTriggered = false;
+        if (informCPU()) {
+            DigitalPin<i960Pinout::EndTransaction>::pulse(); // tell the chipset we are done with the transaction
+            break;
+        } else {
+            // if we got here then it is a burst transaction. Let the chipset know to continue the current transaction
+            DigitalPin<i960Pinout::BurstNext>::pulse();
+        }
     } while (true);
     // okay now just loop back around and wait for the next data cycle
 }
