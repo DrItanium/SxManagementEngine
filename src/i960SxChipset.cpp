@@ -56,7 +56,10 @@ public:
     };
 
 public:
-    constexpr explicit TargetConfiguration(Flags flags) noexcept : configuration_(static_cast<uint16_t>(flags)) { }
+    constexpr explicit TargetConfiguration(Flags flags, byte cyclesBeforePause = 64) noexcept :
+            configuration_(static_cast<uint16_t>(flags)),
+            maxNumberOfCyclesBeforePause_(cyclesBeforePause) { }
+
     template<Flags flag>
     [[nodiscard]] constexpr bool hasFlagSet() const noexcept {
         return (configuration_ & static_cast<uint16_t>(flag)) != 0;
@@ -71,8 +74,10 @@ public:
     constexpr auto emitClockSignalOnPA7() const noexcept { return hasFlagSet<Flags::EnableClockOutput>(); }
     constexpr auto enableOneCycleWaitStates() const noexcept { return hasFlagSet<Flags::EnableOneCycleWaitStates>(); }
     constexpr auto enableCommunicationChannel() const noexcept { return hasFlagSet<Flags::EnableCommunicationChannel>(); }
+    constexpr auto getMaxNumberOfCyclesBeforePause() const noexcept { return maxNumberOfCyclesBeforePause_; }
 private:
     uint16_t configuration_;
+    byte maxNumberOfCyclesBeforePause_;
 };
 enum class MEVersion {
     /**
@@ -213,7 +218,7 @@ using ReadyInputPin = InputPin<i960Pinout::READY_IN, LOW, HIGH>;
 
 using BootSuccessfulPin = OutputPin<i960Pinout::BOOT_SUCCESSFUL, LOW, HIGH>;
 using DoCyclePin = OutputPin<i960Pinout::DO_CYCLE, LOW, HIGH>;
-using BurstLastME = OutputPin<i960Pinout::BURST_LAST_ME, LOW, HIGH>;
+using BurstNext = OutputPin<i960Pinout::BURST_LAST_ME, HIGH, LOW>;
 using InTransactionPin = OutputPin<i960Pinout::IN_TRANSACTION, LOW, HIGH>;
 using Int0Pin = OutputPin<i960Pinout::INT0, HIGH, LOW>;
 using Int1Pin = OutputPin<i960Pinout::INT1, HIGH, LOW>;
@@ -240,7 +245,7 @@ setupPins() noexcept {
     configurePins<FailPin, BlastPin , DenPin ,
             LockRequestedPin , BusLockedPin ,
             Int0Pin , Int1Pin , Int2Pin, Int3Pin,
-            InTransactionPin , DoCyclePin, BootSuccessfulPin , BurstLastME ,
+            InTransactionPin , DoCyclePin, BootSuccessfulPin , BurstNext ,
             Src0Trigger0Pin , Src1Trigger0Pin ,
             Src0Trigger1Pin , Src1Trigger1Pin ,
             Src0Trigger2Pin , Src1Trigger2Pin ,
@@ -251,7 +256,7 @@ setupPins() noexcept {
     // make all outputs deasserted
     deassertPins<Int0Pin, Int1Pin, Int2Pin, Int3Pin, ReadySyncPin,
             BootSuccessfulPin, InTransactionPin, DoCyclePin,
-            BurstLastME,
+            BurstNext,
             BusLockedPin>();
     /// @todo configure event system here
 }
@@ -384,30 +389,81 @@ void setup() {
 // Td -> Td after signaling ready and burst (blast high)
 // Ti -> TChecksumFailure if FAIL is asserted
 // NOTE: Tw may turn out to be synthetic
-[[nodiscard]] bool informCPU() noexcept {
-    // you must scan the BLAST_ pin before pulsing ready, the cpu will change blast for the next transaction
-    auto isBurstLast = DigitalPin<i960Pinout::BLAST>::isAsserted();
-    DigitalPin<i960Pinout::Ready960>::pulse();
-    return isBurstLast;
+template<bool enable = currentConfiguration.enableOneCycleWaitStates()>
+[[gnu::always_inline]]
+inline void waitOneBusCycle() noexcept {
+    if constexpr (enable) {
+        __builtin_avr_nops(2);
+    }
+}
+[[gnu::always_inline]]
+inline void informCPUAndWait() noexcept {
+    ReadySyncPin :: pulse();
+    while (ReadyInputPin::inputAsserted());
+    waitOneBusCycle();
 }
 
+[[gnu::always_inline]]
+inline void waitForCycleEnd() noexcept {
+    while (ReadyInputPin::inputDeasserted());
+    DoCyclePin ::deassertPin();
+    waitOneBusCycle();
+}
+volatile byte numCycles = 0;
+[[noreturn]]
 void loop() {
-    // wait for DEN to go low
-    while (DigitalPin<i960Pinout::DEN>::isDeasserted());
-    DigitalPin<i960Pinout::StartTransaction>::pulse();  // tell the chipset to start the transaction
-
-    do {
-        DigitalPin<i960Pinout::DoCycle>::pulse(); // tell the chipset that a new transaction cycle is starting
-        while (!readyTriggered);
-        readyTriggered = false;
-        if (informCPU()) {
-            DigitalPin<i960Pinout::EndTransaction>::pulse(); // tell the chipset we are done with the transaction
-            break;
-        } else {
-            // if we got here then it is a burst transaction. Let the chipset know to continue the current transaction
-            DigitalPin<i960Pinout::BurstNext>::pulse();
+    for (;;) {
+        // introduce some delay to make sure the bus has time to recover properly
+        waitOneBusCycle();
+        // okay so we need to wait for DEN to go low
+        while (DenPin::inputDeasserted());
+        if (numCycles >= currentConfiguration.getMaxNumberOfCyclesBeforePause()) {
+            // provide a pause/cooldown period after a new data request to make sure that the bus has time to "cool".
+            // Failure to do so can cause very strange checksum failures / chipset faults to happen with the GCM4
+            // this is not an issue since the i960 will wait until ready is signaled
+            while (numCycles > 0) {
+                // use the loop itself to provide some amount of time to cool off
+                // numCycles is volatile to prevent the compiler from optimizing any of this away.
+               --numCycles;
+            }
         }
-    } while (true);
-    // okay now just loop back around and wait for the next data cycle
+        // now do the logic
+        {
+           InTransactionPin :: assertPin(); // tell the chipset we are starting a transaction
+           // okay now we need to emulate a wait loop to allow the chipset time to do its thing
+           for (;;) {
+               // instead of pulsing do cycle, we just assert it while we wait
+               // this has the added benefit of providing proper synchronization between two different clock domains
+               // for example, the GCM4 runs at 120MHz while this chip runs at 20MHz. Making the chipset wait provides implicit
+               // synchronization
+               DoCyclePin :: assertPin();
+               // we have entered a new transaction so increment the counter
+               // we want to count the number of transaction cycles
+               ++numCycles;
+               // now wait for the chipset to tell us that it has satisifed the current part of the transaction
+               if (BlastPin::inputAsserted()) {
+                   // if it turns out that blast is asserted then we break out of this loop and handle it specially
+                   break;
+               }
+               // we are dealing with a burst transaction at this point
+               waitForCycleEnd();
+               // let the chipset know that the operation will continue
+               {
+                   BurstNext::assertPin();
+                   informCPUAndWait();
+                   BurstNext::deassertPin();
+               }
+           }
+           // the end of the current transaction needs to be straighline code
+           waitForCycleEnd();
+           // okay tell teh chipset transaction complete
+           InTransactionPin::deassertPin();
+        }
+        // we have to tie off the transaction itself first
+        // let the i960 know and then wait for the chipset to pull MCU READY high
+        informCPUAndWait();
+        // to make sure the bus has time to recover we can introduce an i960 bus cycle worth of delay
+        waitOneBusCycle();
+    }
 }
 
