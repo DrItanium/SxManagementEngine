@@ -27,7 +27,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// - C++17
 /// Board Platform: MegaCoreX
 #include <Arduino.h>
-constexpr auto EnableConsole = false;
+
+/// @todo implement a better configuration setup
+constexpr auto EnableExternalClockSource = true; // true for the expanded processor card
+constexpr auto EnableClockOutputPort = false; // false on the expanded processor card
+constexpr auto EnableCommunicationChannel = true; // true on the expanded processor card
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
@@ -62,10 +66,11 @@ enum class PinStyle {
     Input,
     Output,
     InputPullup,
+    Any,
 };
 
 template<PinStyle style>
-constexpr decltype(OUTPUT) PinDirection_v = -1;
+constexpr decltype(OUTPUT) PinDirection_v = INPUT; // default to input
 template<> constexpr auto PinDirection_v<PinStyle::Input> = INPUT;
 template<> constexpr auto PinDirection_v<PinStyle::InputPullup> = INPUT_PULLUP;
 template<> constexpr auto PinDirection_v<PinStyle::Output> = OUTPUT;
@@ -79,19 +84,22 @@ struct DigitalPin {
     DigitalPin(DigitalPin&&) = delete;
     DigitalPin& operator=(const DigitalPin&) = delete;
     DigitalPin& operator=(DigitalPin&&) = delete;
-    static constexpr bool isInputPin() noexcept { return style == PinStyle::Input; }
-    static constexpr bool isOutputPin() noexcept { return style == PinStyle::Output; }
-    static constexpr bool isInputPullupPin() noexcept { return style == PinStyle::InputPullup; }
+    static constexpr bool isBidirectionalPin() noexcept { return style == PinStyle::Any; }
+    static constexpr bool isInputPin() noexcept { return style == PinStyle::Input || isBidirectionalPin(); }
+    static constexpr bool isOutputPin() noexcept { return style == PinStyle::Output || isBidirectionalPin(); }
+    static constexpr bool isInputPullupPin() noexcept { return style == PinStyle::InputPullup || isBidirectionalPin(); }
     static constexpr auto getDirection() noexcept { return PinDirection_v<style>; }
     static constexpr auto getPin() noexcept { return pin; }
-    static void configure() noexcept {
-        ::pinMode(static_cast<int>(getPin()), getDirection());
+    static void configure(decltype(OUTPUT) pinDirection = getDirection()) noexcept {
+        ::pinMode(static_cast<int>(getPin()), pinDirection);
     }
     static auto read() noexcept {
         return digitalReadFast(static_cast<int>(pin));
     }
     static bool inputAsserted() noexcept { return read() == asserted; }
     static bool inputDeasserted() noexcept { return read() == deasserted; }
+    static bool inputLow() noexcept { return read() == LOW; }
+    static bool inputHigh() noexcept { return read() == HIGH; }
     static void write(decltype(HIGH) value) noexcept {
         digitalWriteFast(static_cast<int>(pin), value);
     }
@@ -112,6 +120,9 @@ using InputPin = DigitalPin<pin, PinStyle::Input, asserted, deasserted>;
 template<i960Pinout pin, decltype(HIGH) asserted, decltype(HIGH) deasserted>
 using InputPullupPin = DigitalPin<pin, PinStyle::InputPullup, asserted, deasserted>;
 
+template<i960Pinout pin, decltype(HIGH) asserted, decltype(HIGH) deasserted>
+using BidirectionalPin = DigitalPin<pin, PinStyle::Any, asserted, deasserted>;
+
 [[gnu::always_inline]]
 inline void digitalWrite(i960Pinout ip, decltype(HIGH) value) {
     digitalWriteFast(static_cast<int>(ip), value);
@@ -125,369 +136,164 @@ inline void pinMode(i960Pinout ip, decltype(INPUT) value) {
 inline auto digitalRead(i960Pinout ip) {
     return digitalRead(static_cast<int>(ip));
 }
-template<i960Pinout pin>
-constexpr auto isValidPin960_v = static_cast<int>(pin) < static_cast<int>(i960Pinout::Count);
-//static_assert(isValidPin<i960Pinout::CACHE_A0>, "The CACHE_A0 pin should be a valid pin!");
-template<i960Pinout pin>
+using DenPin = InputPin<i960Pinout::DEN, LOW, HIGH>;
+using BlastPin = InputPin<i960Pinout::BLAST, LOW, HIGH>;
+using FailPin = InputPin<i960Pinout::FAIL, HIGH, LOW>;
+using Src0Trigger3Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT3, LOW, HIGH>;
+using Src1Trigger3Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT3, LOW, HIGH>;
+using Src0Trigger2Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT2, LOW, HIGH>;
+using Src1Trigger2Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT2, LOW, HIGH>;
+using Src0Trigger1Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT1, LOW, HIGH>;
+using Src1Trigger1Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT1, LOW, HIGH>;
+using Src0Trigger0Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT0, LOW, HIGH>;
+using Src1Trigger0Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT0, LOW, HIGH>;
+using LockRequestedPin = InputPin<i960Pinout::LOCK_REQUESTED, LOW, HIGH>;
+using ReadyInputPin = InputPin<i960Pinout::READY_IN, LOW, HIGH>;
+
+using BootSuccessfulPin = OutputPin<i960Pinout::BOOT_SUCCESSFUL, LOW, HIGH>;
+using DoCyclePin = OutputPin<i960Pinout::DO_CYCLE, LOW, HIGH>;
+using BurstLastME = OutputPin<i960Pinout::BURST_LAST_ME, LOW, HIGH>;
+using InTransactionPin = OutputPin<i960Pinout::IN_TRANSACTION, LOW, HIGH>;
+using Int0Pin = OutputPin<i960Pinout::INT0, HIGH, LOW>;
+using Int1Pin = OutputPin<i960Pinout::INT1, HIGH, LOW>;
+using Int2Pin = OutputPin<i960Pinout::INT2, HIGH, LOW>;
+using Int3Pin = OutputPin<i960Pinout::INT3, HIGH, LOW>;
+using BootedPin = OutputPin<i960Pinout::ME_BOOTED, HIGH, LOW>;
+using ReadySyncPin = OutputPin<i960Pinout::READY960, LOW, HIGH>;
+using BusLockedPin = OutputPin<i960Pinout::BUS_LOCKED, LOW, HIGH>;
+
+using LockPin = BidirectionalPin<i960Pinout::LOCK, LOW, HIGH>;
+
+template<typename ... pins>
 [[gnu::always_inline]]
-[[nodiscard]] inline volatile unsigned char& getAssociatedOutputPort() noexcept {
-    static_assert(isValidPin960_v<pin>, "INVALID PIN PROVIDED");
-    switch (pin) {
-#define X(id, number) case i960Pinout:: PORT_ ## id ## number
-#define Y(id) \
-    X(id, 0): \
-    X(id, 1): \
-    X(id, 2): \
-    X(id, 3): \
-    X(id, 4): \
-    X(id, 5): \
-    X(id, 6): \
-    X(id, 7)
-        Y(A): return PORTA;
-        Y(C): return PORTC;
-        Y(D): return PORTD;
-        Y(B): return PORTB;
-#undef Y
-#undef X
-
-        default:
-            return PORTA;
-    }
+inline void configurePins() noexcept {
+    (pins::configure(), ...);
 }
-
-template<i960Pinout pin>
-[[gnu::always_inline]]
-[[nodiscard]] inline volatile unsigned char& getAssociatedDirectionPort() noexcept {
-    static_assert(isValidPin960_v<pin>, "INVALID PIN PROVIDED");
-    switch (pin) {
-#define X(id, number) case i960Pinout:: PORT_ ## id ## number
-#define Y(id) \
-    X(id, 0): \
-    X(id, 1): \
-    X(id, 2): \
-    X(id, 3): \
-    X(id, 4): \
-    X(id, 5): \
-    X(id, 6): \
-    X(id, 7)
-        Y(A): return DDRA;
-        Y(C): return DDRC;
-        Y(D): return DDRD;
-        Y(B): return DDRB;
-#undef Y
-#undef X
-
-        default:
-            return DDRA;
-    }
+void
+setupPins() noexcept {
+    configurePins<FailPin, BlastPin , DenPin ,
+            LockRequestedPin , BusLockedPin ,
+            Int0Pin , Int1Pin , Int2Pin, Int3Pin,
+            InTransactionPin , DoCyclePin, BootSuccessfulPin , BurstLastME ,
+            Src0Trigger0Pin , Src1Trigger0Pin ,
+            Src0Trigger1Pin , Src1Trigger1Pin ,
+            Src0Trigger2Pin , Src1Trigger2Pin ,
+            Src0Trigger3Pin , Src1Trigger3Pin ,
+            ReadySyncPin , ReadyInputPin >();
+    // the lock pin is special as it is an open collector pin, we want to stay off of it as much as possible
+    LockPin::configure(INPUT);
+    // make all outputs deasserted
+    Int0Pin::deassertPin();
+    Int1Pin::deassertPin();
+    Int2Pin::deassertPin();
+    Int3Pin::deassertPin();
+    BootedPin::deassertPin();
+    ReadySyncPin :: deassertPin();
+    BootSuccessfulPin :: deassertPin();
+    InTransactionPin :: deassertPin();
+    DoCyclePin :: deassertPin();
+    BurstLastME :: deassertPin();
+    BusLockedPin :: deassertPin();
 }
-
-template<i960Pinout pin>
-[[gnu::always_inline]]
-[[nodiscard]] inline volatile unsigned char& getAssociatedInputPort() noexcept {
-    static_assert(isValidPin960_v<pin>, "INVALID PIN PROVIDED");
-    switch (pin) {
-#define X(id, number) case i960Pinout:: PORT_ ## id ## number
-#define Y(id) \
-    X(id, 0): \
-    X(id, 1): \
-    X(id, 2): \
-    X(id, 3): \
-    X(id, 4): \
-    X(id, 5): \
-    X(id, 6): \
-    X(id, 7)
-        Y(A): return PINA;
-        Y(C): return PINC;
-        Y(D): return PIND;
-        Y(B): return PINB;
-#undef Y
-#undef X
-        default:
-            return PINA;
-    }
-}
-template<i960Pinout pin>
-[[gnu::always_inline]]
-[[nodiscard]] constexpr decltype(auto) getPinMask() noexcept {
-    static_assert(isValidPin960_v<pin>, "INVALID PIN PROVIDED");
-    switch (pin) {
-#define X(id, number) case i960Pinout:: PORT_ ## id ## number : return _BV ( P ## id ## number )
-#define Y(id) \
-    X(id, 0); \
-    X(id, 1); \
-    X(id, 2); \
-    X(id, 3); \
-    X(id, 4); \
-    X(id, 5); \
-    X(id, 6); \
-    X(id, 7)
-        Y(A);
-        Y(C);
-        Y(D);
-        Y(B);
-#undef Y
-#undef X
-        default:
-            return 0xFF;
-    }
-}
-
 template<i960Pinout pin, decltype(HIGH) value>
 [[gnu::always_inline]]
 inline void digitalWrite() noexcept {
-    if constexpr (auto& thePort = getAssociatedOutputPort<pin>(); value == LOW) {
-        thePort &= ~getPinMask<pin>();
-    } else {
-        thePort |= getPinMask<pin>();
-    }
+    digitalWrite(pin, value);
 }
 template<i960Pinout pin>
 [[gnu::always_inline]]
 inline void digitalWrite(decltype(HIGH) value) noexcept {
-    // don't disable interrupts, that should be done outside this method
-    if (auto& thePort = getAssociatedOutputPort<pin>(); value == LOW) {
-        thePort &= ~getPinMask<pin>();
-    } else {
-        thePort |= getPinMask<pin>();
-    }
+    digitalWriteFast(static_cast<int>(pin), value);
 }
 template<i960Pinout pin>
 [[gnu::always_inline]] inline void digitalWrite(bool level) noexcept {
-    digitalWrite<pin>(level ? HIGH : LOW);
+    digitalWriteFast(static_cast<int>(pin), level ? HIGH : LOW);
 }
 
-template<i960Pinout pin, decltype(HIGH) switchTo = LOW>
+template<i960Pinout pin, decltype(HIGH) asserted = LOW>
 [[gnu::always_inline]]
 inline void pulse() noexcept {
+    static constexpr auto deasserted = asserted == LOW ? HIGH : LOW;
     // use the switch to value to compute what to revert to
-    digitalWrite<pin, switchTo>();
-    digitalWrite<pin, ((switchTo == LOW) ? HIGH : LOW)>();
+    digitalWrite<pin, asserted>();
+    __builtin_avr_nops(2);
+    digitalWrite<pin, deasserted>();
 }
 
 template<i960Pinout pin>
 [[gnu::always_inline]]
 inline auto digitalRead() noexcept {
-    return (getAssociatedInputPort<pin>() & getPinMask<pin>()) ? HIGH : LOW;
+    return digitalReadFast(static_cast<int>(pin));
 }
 
-template<i960Pinout pin>
-struct DigitalPin {
-    DigitalPin() = delete;
-    ~DigitalPin() = delete;
-    DigitalPin(const DigitalPin&) = delete;
-    DigitalPin(DigitalPin&&) = delete;
-    DigitalPin& operator=(const DigitalPin&) = delete;
-    DigitalPin& operator=(DigitalPin&&) = delete;
-    static constexpr bool isInputPin() noexcept { return false; }
-    static constexpr bool isOutputPin() noexcept { return false; }
-    static constexpr auto isInputPullupPin() noexcept { return false; }
-    static constexpr bool getDirection() noexcept { return false; }
-    static constexpr auto getPin() noexcept { return pin; }
-    static constexpr auto valid() noexcept { return isValidPin960_v<pin>; }
-};
 
-#define DefOutputPin(pin, asserted, deasserted) \
-    template<> \
-    struct DigitalPin< pin > { \
-    static_assert(asserted != deasserted, "Asserted and deasserted must not be equal!"); \
-        DigitalPin() = delete; \
-        ~DigitalPin() = delete; \
-        DigitalPin(const DigitalPin&) = delete; \
-        DigitalPin(DigitalPin&&) = delete; \
-        DigitalPin& operator=(const DigitalPin&) = delete; \
-        DigitalPin& operator=(DigitalPin&&) = delete; \
-        static constexpr auto isInputPin() noexcept { return false; } \
-        static constexpr auto isOutputPin() noexcept { return true; } \
-        static constexpr auto isInputPullupPin() noexcept { return false; } \
-        static constexpr auto getPin() noexcept { return pin; } \
-        static constexpr auto getDirection() noexcept { return OUTPUT; } \
-        static constexpr auto getAssertionState() noexcept { return asserted; } \
-        static constexpr auto getDeassertionState() noexcept { return deasserted; }      \
-        [[gnu::always_inline]] inline static void assertPin() noexcept { digitalWrite<pin,getAssertionState()>(); } \
-        [[gnu::always_inline]] inline static void deassertPin() noexcept { digitalWrite<pin,getDeassertionState()>(); } \
-        [[gnu::always_inline]] inline static void write(decltype(LOW) value) noexcept { digitalWrite<pin>(value); } \
-        static constexpr auto valid() noexcept { return isValidPin960_v<pin>; }          \
-        template<decltype(LOW) switchTo = LOW>  \
-        [[gnu::always_inline]]                  \
-        inline static void pulse() noexcept {   \
-            ::pulse<pin, switchTo>();           \
-        }                                       \
-        static void configure() noexcept { pinMode(pin, OUTPUT); } \
-    }
-#define DefInputPin(pin, asserted, deasserted) \
-    template<> \
-    struct DigitalPin< pin > { \
-        static_assert(asserted != deasserted, "Asserted and deasserted must not be equal!"); \
-        DigitalPin() = delete; \
-        ~DigitalPin() = delete; \
-        DigitalPin(const DigitalPin&) = delete; \
-        DigitalPin(DigitalPin&&) = delete; \
-        DigitalPin& operator=(const DigitalPin&) = delete; \
-        DigitalPin& operator=(DigitalPin&&) = delete; \
-        static constexpr auto isInputPin() noexcept { return true; } \
-        static constexpr auto isOutputPin() noexcept { return false; } \
-        static constexpr auto isInputPullupPin() noexcept { return false; } \
-        static constexpr auto getPin() noexcept { return pin; } \
-        static constexpr auto getDirection() noexcept { return INPUT; } \
-        static constexpr auto getAssertionState() noexcept { return asserted; } \
-        static constexpr auto getDeassertionState() noexcept { return deasserted; } \
-        [[gnu::always_inline]] inline static auto read() noexcept { return digitalRead<pin>(); } \
-        [[gnu::always_inline]] inline static bool isAsserted() noexcept { return read() == getAssertionState(); } \
-        [[gnu::always_inline]] inline static bool isDeasserted() noexcept { return read() == getDeassertionState(); } \
-        static constexpr auto valid() noexcept { return isValidPin960_v<pin>; } \
-        static void configure() noexcept { pinMode(pin, INPUT); } \
-    }
 
-#define DefInputPullupPin(pin, asserted, deasserted) \
-    template<> \
-    struct DigitalPin< pin > { \
-        static_assert(asserted != deasserted, "Asserted and deasserted must not be equal!"); \
-        DigitalPin() = delete; \
-        ~DigitalPin() = delete; \
-        DigitalPin(const DigitalPin&) = delete; \
-        DigitalPin(DigitalPin&&) = delete; \
-        DigitalPin& operator=(const DigitalPin&) = delete; \
-        DigitalPin& operator=(DigitalPin&&) = delete; \
-        static constexpr auto isInputPin() noexcept { return false; } \
-        static constexpr auto isOutputPin() noexcept { return false; }   \
-        static constexpr auto isInputPullupPin() noexcept { return true; } \
-        static constexpr auto getPin() noexcept { return pin; } \
-        static constexpr auto getDirection() noexcept { return INPUT_PULLUP; } \
-        static constexpr auto getAssertionState() noexcept { return asserted; } \
-        static constexpr auto getDeassertionState() noexcept { return deasserted; } \
-        [[gnu::always_inline]] inline static auto read() noexcept { return digitalRead<pin>(); } \
-        [[gnu::always_inline]] inline static bool isAsserted() noexcept { return read() == getAssertionState(); } \
-        [[gnu::always_inline]] inline static bool isDeasserted() noexcept { return read() == getDeassertionState(); } \
-        static constexpr auto valid() noexcept { return isValidPin960_v<pin>; } \
-        static void configure() noexcept { pinMode(pin, INPUT_PULLUP); } \
-    }
-DefOutputPin(i960Pinout::LED, HIGH, LOW);
-DefInputPin(i960Pinout::MCU_READY, LOW, HIGH);
-DefInputPin(i960Pinout::FAIL960, HIGH, LOW);
-DefOutputPin(i960Pinout::SuccessfulBoot, HIGH, LOW);
-DefInputPullupPin(i960Pinout::WaitBoot960, LOW, HIGH);
-DefOutputPin(i960Pinout::DoCycle, LOW, HIGH);
-DefOutputPin(i960Pinout::StartTransaction, LOW, HIGH);
-DefOutputPin(i960Pinout::BurstNext, LOW, HIGH);
-DefOutputPin(i960Pinout::EndTransaction, LOW, HIGH);
-DefOutputPin(i960Pinout::Ready960, LOW, HIGH);
-DefInputPin(i960Pinout::BLAST, LOW, HIGH);
-DefInputPin(i960Pinout::DEN, LOW, HIGH);
-
-DefOutputPin(i960Pinout::INT960_0, LOW, HIGH);
-DefOutputPin(i960Pinout::INT960_1, HIGH, LOW);
-DefOutputPin(i960Pinout::INT960_2, HIGH, LOW);
-DefOutputPin(i960Pinout::INT960_3, LOW, HIGH);
-
-DefOutputPin(i960Pinout::RESET960, LOW, HIGH);
-DefOutputPin(i960Pinout::LOCK960, LOW, HIGH);
-DefInputPin(i960Pinout::HLDA960, LOW, HIGH);
-DefOutputPin(i960Pinout::HOLD960, HIGH, LOW);
-
-#undef DefInputPin
-#undef DefOutputPin
-#undef DefInputPullupPin
-
-template<i960Pinout ... pins>
-[[gnu::always_inline]]
-inline void configurePins() noexcept {
-    (DigitalPin<pins>::configure(), ...);
-}
-
-template<i960Pinout ... pins>
+template<typename ... pins>
 [[gnu::always_inline]]
 inline void deassertPins() noexcept {
-    (DigitalPin<pins>::deassertPin(), ...);
+    (pins::deassertPin(), ...);
 }
 
-template<i960Pinout pinId>
+template<typename T>
 class PinAsserter {
 public:
-    static_assert(DigitalPin<pinId>::isOutputPin());
-    PinAsserter() { DigitalPin<pinId>::assertPin(); }
-    ~PinAsserter() { DigitalPin<pinId>::deassertPin(); }
+    static_assert(T::isOutputPin());
+    PinAsserter() { T::assertPin(); }
+    ~PinAsserter() { T::deassertPin(); }
 };
 
 [[noreturn]]
-void checksumFailureHappened() {
-    if constexpr (EnableConsole) {
-        Serial.println(F("CHECKSUM FAILURE!"));
-    }
-    DigitalPin<i960Pinout::SuccessfulBoot>::deassertPin();
-    DigitalPin<i960Pinout::LED>::assertPin();
+void
+handleChecksumFail() noexcept {
+    BootSuccessfulPin :: deassertPin();
     while(true) {
         delay(1000);
     }
 }
 
-volatile bool readyTriggered = false;
 void
-handleREADYTrigger() noexcept {
-    readyTriggered = true;
+configureClockSource() noexcept {
+    byte clkBits = 0;
+    if constexpr (EnableExternalClockSource) {
+        clkBits |= 0b0000'0011;
+    }
+    if constexpr (EnableClockOutputPort) {
+        clkBits |= 0b1000'0000;
+    }
+    if constexpr (EnableExternalClockSource || EnableClockOutputPort) {
+        CCP = 0xD8;
+        CLKCTRL.MCLKCTRLA = clkBits;
+        CCP = 0xD8;
+    }
+    if constexpr (EnableClockOutputPort) {
+        CCP = 0xD8;
+        CLKCTRL.MCLKCTRLA |= 0b0000'0010;
+        CCP = 0xD8;
+    }
 }
 
 // the setup routine runs once when you press reset:
 void setup() {
-    DigitalPin<i960Pinout::RESET960>::configure();
-    {
-        PinAsserter<i960Pinout::RESET960> holdInReset;
-        DigitalPin<i960Pinout::WaitBoot960>::configure();
-        delay(2000);
-        if constexpr (EnableConsole) {
-            Serial.begin(9600); // just turn on the serial console
-            Serial.println(F("i960Sx Management Engine"));
-        }
-        configurePins<i960Pinout::DEN,
-                i960Pinout::FAIL960,
-                i960Pinout::HLDA960,
-                i960Pinout::BLAST,
-                i960Pinout::MCU_READY,
-                i960Pinout::Ready960,
-                i960Pinout::LOCK960,
-                i960Pinout::HOLD960,
-                i960Pinout::INT960_0,
-                i960Pinout::INT960_1,
-                i960Pinout::INT960_2,
-                i960Pinout::INT960_3,
-                i960Pinout::SuccessfulBoot,
-                i960Pinout::DoCycle,
-                i960Pinout::EndTransaction,
-                i960Pinout::StartTransaction,
-                i960Pinout::BurstNext,
-                i960Pinout::LED>();
-        deassertPins<i960Pinout::BurstNext,
-                i960Pinout::DoCycle,
-                i960Pinout::StartTransaction,
-                i960Pinout::EndTransaction,
-                i960Pinout::LOCK960,
-                i960Pinout::HOLD960,
-                i960Pinout::INT960_0,
-                i960Pinout::INT960_1,
-                i960Pinout::INT960_2,
-                i960Pinout::INT960_3,
-                i960Pinout::SuccessfulBoot,
-                i960Pinout::Ready960,
-                i960Pinout::LED>();
-        attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::MCU_READY)), handleREADYTrigger, FALLING);
-        // wait for the chipset to release control
-        while (DigitalPin<i960Pinout::WaitBoot960>::isAsserted());
-    }
-    while (DigitalPin<i960Pinout::FAIL960>::read() == LOW) {
-        if (DigitalPin<i960Pinout::DEN>::isAsserted()) {
+    configureClockSource();
+    // the booted pin is the reset pin conceptually
+    BootedPin ::configure();
+    BootedPin ::assertPin();
+    setupPins();
+    // no need to wait for the chipset to release control
+    BootedPin::deassertPin();
+    while (FailPin::inputLow()) {
+        if (DenPin::inputAsserted()) {
             break;
         }
     }
-    while (DigitalPin<i960Pinout::FAIL960>::read() == HIGH) {
-        if (DigitalPin<i960Pinout::DEN>::isAsserted()) {
+    while (FailPin::inputHigh()) {
+        if (DenPin::inputAsserted()) {
             break;
         }
     }
-    DigitalPin<i960Pinout::SuccessfulBoot>::assertPin();
-    attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL960)), checksumFailureHappened, RISING);
-    if constexpr (EnableConsole) {
-        Serial.println(F("Successful boot!"));
-    }
+    BootSuccessfulPin::assertPin();
+    // at this point, if we ever go from low to high again then we have a checksum failure
+    attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL)), handleChecksumFail, RISING);
 }
 // ----------------------------------------------------------------
 // state machine
