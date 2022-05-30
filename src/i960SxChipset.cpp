@@ -27,6 +27,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// - C++17
 /// Board Platform: MegaCoreX
 #include <Arduino.h>
+#include <Event.h>
+#include <Logic.h>
 
 /// @todo implement a better configuration setup
 class TargetConfiguration {
@@ -53,11 +55,13 @@ public:
          * @brief If set, then the CCLs of the ME are used for edge detection of interrupt sources
          */
         BuiltinInterruptController = (1 << 4),
+        EnableDebugConsole = (1 << 5),
     };
 
 public:
-    constexpr explicit TargetConfiguration(Flags flags, byte cyclesBeforePause = 64) noexcept :
+    constexpr explicit TargetConfiguration(Flags flags, byte version, byte cyclesBeforePause = 64) noexcept :
             configuration_(static_cast<uint16_t>(flags)),
+            version_(version),
             maxNumberOfCyclesBeforePause_(cyclesBeforePause) { }
 
     template<Flags flag>
@@ -75,29 +79,19 @@ public:
     constexpr auto enableOneCycleWaitStates() const noexcept { return hasFlagSet<Flags::EnableOneCycleWaitStates>(); }
     constexpr auto enableCommunicationChannel() const noexcept { return hasFlagSet<Flags::EnableCommunicationChannel>(); }
     constexpr auto getMaxNumberOfCyclesBeforePause() const noexcept { return maxNumberOfCyclesBeforePause_; }
+    constexpr auto getVersion() const noexcept { return version_; }
+    constexpr auto debugConsoleActive() const noexcept { return hasFlagSet<Flags::EnableDebugConsole>(); }
 private:
     uint16_t configuration_;
+    byte version_;
     byte maxNumberOfCyclesBeforePause_;
 };
-enum class MEVersion {
-    /**
-     * @brief Classic Management Engine Processor
-     */
-    Version0,
-    /**
-     * @brief Updated management engine version meant for expanded processor board
-     */
-    Version1,
-    /**
-     * @brief Management Engine meant for type 2.01 single board design
-     */
-    Version2,
-};
-/// @todo link MEVersion to a target configuration
 constexpr TargetConfiguration currentConfiguration{
         TargetConfiguration::Flags::HasExternalClockSource |
         TargetConfiguration::Flags::EnableCommunicationChannel |
-        TargetConfiguration::Flags::BuiltinInterruptController};
+        TargetConfiguration::Flags::BuiltinInterruptController,
+        1 /* version */,
+        64 /* delay */ };
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
@@ -331,14 +325,93 @@ configureClockSource() noexcept {
         CCP = 0xD8;
     }
 }
-
+void configurePIC() noexcept {
+    if constexpr (currentConfiguration.getVersion() == 1) {
+        // okay so configure the event and logic system for version 1
+        // connect 10MHz clock to all CCLs
+        Event0.set_generator(gen0::pin_pa2);
+        Event0.set_generator(user::ccl0_event_b);
+        Event0.set_generator(user::ccl1_event_b);
+        Event0.set_generator(user::ccl2_event_b);
+        Event0.set_generator(user::ccl3_event_b);
+        // use PA7 as a CCL input
+        Event1.set_generator(gen1::pin_pa7);
+        Event1.set_user(user::ccl0_event_a);
+        // setup Logic0 for int0 trigger but keep the truth table for the end
+        Logic0.edgedetect = edgedetect::enable;
+        Logic0.filter = filter::sync;
+        Logic0.input0 = in::event_a;
+        Logic0.input1 = in::pin;
+        Logic0.input2 = in::event_b;
+        Logic0.clocksource = clocksource::in2;
+        Logic0.output = out::enable;
+        // do the same thing for the other CCLs
+        Logic1.edgedetect = edgedetect::enable;
+        Logic1.filter = filter::sync;
+        Logic1.input0 = in::pin;
+        Logic1.input1 = in::pin;
+        Logic1.input2 = in::event_b;
+        Logic1.clocksource = clocksource::in2;
+        Logic1.output = out::enable;
+        Logic2.edgedetect = edgedetect::enable;
+        Logic2.filter = filter::sync;
+        Logic2.input0 = in::pin;
+        Logic2.input1 = in::pin;
+        Logic2.input2 = in::event_b;
+        Logic2.output = out::enable;
+        Logic2.clocksource = clocksource::in2;
+        Logic3.edgedetect = edgedetect::enable;
+        Logic3.filter = filter::sync;
+        Logic3.input0 = in::pin;
+        Logic3.input1 = in::pin;
+        Logic3.input2 = in::event_b;
+        Logic3.clocksource = clocksource::in2;
+        Logic3.output = out::enable;
+        // now setup the truth tables
+        // So we should trigger an enable on all falling edges so
+        // 0b00010001 would be the standard setup so
+        // in2, in1, in0
+        // 0b000 -> 1 // we got a trigger of some kind
+        // 0b001 -> 1 // we got a trigger of some kind
+        // 0b010 -> 1 // we got a trigger of some kind
+        // 0b011 -> 0 // we got no trigger at all
+        // 0b100 -> 1 // we got a trigger of some kind
+        // 0b101 -> 1 // we got a trigger of some kind
+        // 0b110 -> 1 // we got a trigger of some kind
+        // 0b111 -> 0 // we got no trigger at all
+        Logic0.truth = 0b01110111;
+        Logic1.truth = 0b01110111;
+        Logic2.truth = 0b01110111;
+        Logic3.truth = 0b01110111;
+        // okay this starts up at the end
+        Logic0.init();
+        Logic1.init();
+        Logic2.init();
+        Logic3.init();
+        Event0.start();
+        Event1.start();
+    }
+}
 // the setup routine runs once when you press reset:
 void setup() {
     configureClockSource();
     // the booted pin is the reset pin conceptually
     BootedPin ::configure();
     BootedPin ::assertPin();
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.swap(1);
+        Serial1.begin(115200);
+        Serial1.println(F("i960 Management Engine"));
+    }
     setupPins();
+    if constexpr (currentConfiguration.enableCommunicationChannel()) {
+        Serial.swap(1);
+        // okay so activate interrupt sources if it makes sense
+        /// @todo implement support for communication channel interrupts
+    }
+    if constexpr (currentConfiguration.hasPICBuiltin()) {
+        configurePIC();
+    }
     // no need to wait for the chipset to release control
     BootedPin::deassertPin();
     while (FailPin::inputLow()) {
