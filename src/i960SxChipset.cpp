@@ -473,11 +473,17 @@ void setup() {
     BootedPin::deassertPin();
     while (FailPin::inputLow()) {
         if (DenPin::inputAsserted()) {
+            if constexpr (currentConfiguration.debugConsoleActive()) {
+                Serial1.println("DEN Already Asserted!");
+            }
             break;
         }
     }
     while (FailPin::inputHigh()) {
         if (DenPin::inputAsserted()) {
+            if constexpr (currentConfiguration.debugConsoleActive()) {
+                Serial1.println("DEN Already Asserted!");
+            }
             break;
         }
     }
