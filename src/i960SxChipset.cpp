@@ -176,7 +176,7 @@ struct DigitalPin {
     static void deassertPin() noexcept { write(deasserted); }
     static void pulse() noexcept {
         assertPin();
-        __builtin_avr_nops(2);
+        __builtin_avr_nops(4);
         deassertPin();
     }
 };
@@ -233,11 +233,12 @@ using Src0Trigger0Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT0, LOW, HIGH>;
 using Src1Trigger0Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT0, LOW, HIGH>;
 using LockRequestedPin = InputPin<i960Pinout::LOCK_REQUESTED, LOW, HIGH>;
 using ReadyInputPin = InputPin<i960Pinout::READY_IN, LOW, HIGH>;
-
-using BootSuccessfulPin = OutputPin<currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::IN_TRANSACTION : i960Pinout::BOOT_SUCCESSFUL, HIGH, LOW>; // protocol assumed is active high
+constexpr i960Pinout BootSuccessfulPinIndex = currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::IN_TRANSACTION : i960Pinout::BOOT_SUCCESSFUL;
+constexpr i960Pinout InTransactionPinIndex = currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::BOOT_SUCCESSFUL : i960Pinout::IN_TRANSACTION;
+using BootSuccessfulPin = OutputPin<BootSuccessfulPinIndex, HIGH, LOW>; // protocol assumed is active high
 using DoCyclePin = OutputPin<i960Pinout::DO_CYCLE, LOW, HIGH>;
 using BurstNext = OutputPin<i960Pinout::BURST_LAST_ME, HIGH, LOW>;
-using InTransactionPin = OutputPin<currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::BOOT_SUCCESSFUL : i960Pinout::IN_TRANSACTION, LOW, HIGH>;
+using InTransactionPin = OutputPin<InTransactionPinIndex, LOW, HIGH>;
 using Int0Pin = OutputPin<i960Pinout::INT0, HIGH, LOW>;
 using Int1Pin = OutputPin<i960Pinout::INT1, HIGH, LOW>;
 using Int2Pin = OutputPin<i960Pinout::INT2, HIGH, LOW>;
@@ -300,7 +301,7 @@ inline void pulse() noexcept {
     static constexpr auto deasserted = asserted == LOW ? HIGH : LOW;
     // use the switch to value to compute what to revert to
     digitalWrite<pin, asserted>();
-    __builtin_avr_nops(2);
+    __builtin_avr_nops(4);
     digitalWrite<pin, deasserted>();
 }
 
