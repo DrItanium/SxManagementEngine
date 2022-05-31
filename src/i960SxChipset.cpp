@@ -61,6 +61,11 @@ public:
          */
         InTransactionAndBootSuccessfulAreSwapped = (1 << 6),
 
+        /**
+         * @brief For some of the single board computers the management engine is responsible for watching the reset circuit
+         */
+        HandleResetManually = (1 << 7),
+
     };
 
 public:
@@ -92,7 +97,7 @@ private:
     byte version_;
     byte maxNumberOfCyclesBeforePause_;
 };
-constexpr TargetConfiguration currentConfiguration{
+constexpr TargetConfiguration version1 {
         TargetConfiguration::Flags::HasExternalClockSource
         | TargetConfiguration::Flags::EnableCommunicationChannel
         | TargetConfiguration::Flags::BuiltinInterruptController
@@ -101,6 +106,12 @@ constexpr TargetConfiguration currentConfiguration{
         ,
         1 /* version */,
         64 /* delay */ };
+constexpr TargetConfiguration version2GCM {
+    TargetConfiguration::Flags::HandleResetManually,
+    2,
+    64
+};
+constexpr TargetConfiguration currentConfiguration = version1;
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
@@ -456,9 +467,13 @@ void setup() {
     // the booted pin is the reset pin conceptually
     BootedPin ::configure();
     BootedPin ::assertPin();
+    delay(2000);
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.swap(1);
         Serial1.begin(9600);
+        while (!Serial1) {
+            delay(1);
+        }
         Serial1.println("i960 Management Engine");
     }
     setupPins();
