@@ -224,7 +224,7 @@ using DenPin = InputPin<i960Pinout::DEN, LOW, HIGH>;
 using BlastPin = InputPin<i960Pinout::BLAST, LOW, HIGH>;
 using FailPin = InputPin<i960Pinout::FAIL, HIGH, LOW>;
 using Src0Trigger3Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT3, LOW, HIGH>;
-using Src1Trigger3Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT3, LOW, HIGH>;
+using Src1Trigger3Pin = InputPullupPin<i960Pinout::SRC1_TRIGGER_INT3, LOW, HIGH>;
 using Src0Trigger2Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT2, LOW, HIGH>;
 using Src1Trigger2Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT2, LOW, HIGH>;
 using Src0Trigger1Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT1, LOW, HIGH>;
@@ -270,7 +270,8 @@ setupPins() noexcept {
             Src0Trigger3Pin , Src1Trigger3Pin ,
             ReadySyncPin , ReadyInputPin >();
     // the lock pin is special as it is an open collector pin, we want to stay off of it as much as possible
-    LockPin::configure(INPUT);
+    LockPin::configure(OUTPUT);
+    LockPin::write(HIGH);
     // make all outputs deasserted
     deassertPins<Int0Pin, Int1Pin, Int2Pin, Int3Pin, ReadySyncPin,
             BootSuccessfulPin, InTransactionPin, DoCyclePin,
@@ -380,7 +381,7 @@ void configurePIC() noexcept {
         Logic0.edgedetect = edgedetect::enable;
         Logic0.filter = filter::sync;
         Logic0.input0 = in::event_a;
-        Logic0.input1 = in::pin;
+        Logic0.input1 = in::input_pullup;
         Logic0.input2 = in::event_b;
         Logic0.clocksource = clocksource::in2;
         Logic0.output = out::enable;
