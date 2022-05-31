@@ -102,6 +102,15 @@ constexpr TargetConfiguration version1 {
         | TargetConfiguration::Flags::EnableCommunicationChannel
         | TargetConfiguration::Flags::BuiltinInterruptController
         | TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
+        //| TargetConfiguration::Flags::EnableDebugConsole
+        ,
+        1 /* version */,
+        64 /* delay */ };
+constexpr TargetConfiguration version1WithDebug {
+        TargetConfiguration::Flags::HasExternalClockSource
+        | TargetConfiguration::Flags::EnableCommunicationChannel
+        | TargetConfiguration::Flags::BuiltinInterruptController
+        | TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
         | TargetConfiguration::Flags::EnableDebugConsole
         ,
         1 /* version */,
@@ -111,7 +120,7 @@ constexpr TargetConfiguration version2GCM {
     2,
     64
 };
-constexpr TargetConfiguration currentConfiguration = version1;
+constexpr TargetConfiguration currentConfiguration = version1WithDebug;
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
@@ -187,7 +196,7 @@ struct DigitalPin {
     static void deassertPin() noexcept { write(deasserted); }
     static void pulse() noexcept {
         assertPin();
-        __builtin_avr_nops(4);
+        __builtin_avr_nops(2);
         deassertPin();
     }
 };
