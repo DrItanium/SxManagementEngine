@@ -323,14 +323,28 @@ public:
 
 [[noreturn]]
 void
-handleChecksumFail() noexcept {
-    if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Checksum failure!");
-    }
+terminateExecution() noexcept {
     BootSuccessfulPin :: deassertPin();
     while(true) {
         delay(1000);
     }
+}
+[[noreturn]]
+void
+handleChecksumFail() noexcept {
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        Serial1.println("Checksum failure!");
+    }
+    terminateExecution();
+}
+
+[[noreturn]]
+void
+tooManyCyclesForTransaction() noexcept {
+   if constexpr (currentConfiguration.debugConsoleActive())  {
+       Serial1.println("Too many cycles for the given transaction");
+   }
+   terminateExecution();
 }
 
 void
@@ -388,22 +402,22 @@ void configurePIC() noexcept {
         // do the same thing for the other CCLs
         Logic1.edgedetect = edgedetect::enable;
         Logic1.filter = filter::sync;
-        Logic1.input0 = in::pin;
-        Logic1.input1 = in::pin;
+        Logic1.input0 = in::input_pullup;
+        Logic1.input1 = in::input_pullup;
         Logic1.input2 = in::event_b;
         Logic1.clocksource = clocksource::in2;
         Logic1.output = out::enable;
         Logic2.edgedetect = edgedetect::enable;
         Logic2.filter = filter::sync;
-        Logic2.input0 = in::pin;
-        Logic2.input1 = in::pin;
+        Logic2.input0 = in::input_pullup;
+        Logic2.input1 = in::input_pullup;
         Logic2.input2 = in::event_b;
         Logic2.output = out::enable;
         Logic2.clocksource = clocksource::in2;
         Logic3.edgedetect = edgedetect::enable;
         Logic3.filter = filter::sync;
-        Logic3.input0 = in::pin;
-        Logic3.input1 = in::pin;
+        Logic3.input0 = in::input_pullup;
+        Logic3.input1 = in::input_pullup;
         Logic3.input2 = in::event_b;
         Logic3.clocksource = clocksource::in2;
         Logic3.output = out::enable;
@@ -477,40 +491,6 @@ void setup() {
         Serial1.println("Interrupt attached!");
     }
 }
-// ----------------------------------------------------------------
-// state machine
-// ----------------------------------------------------------------
-// The bootup process has a separate set of states
-// TStart - Where we start
-// TSystemTest - Processor performs self test
-//
-// TStart -> TSystemTest via FAIL being asserted
-// TSystemTest -> Ti via FAIL being deasserted
-//
-// State machine will stay here for the duration
-// State diagram based off of i960SA/SB Reference manual
-// Basic Bus States
-// Ti - Idle State
-// Ta - Address State
-// Td - Data State
-// Tw - Wait State
-
-// READY - ~READY asserted
-// NOT READY - ~READY not asserted
-// BURST - ~BLAST not asserted
-// NO BURST - ~BLAST asserted
-// NEW REQUEST - ~AS asserted
-// NO REQUEST - ~AS not asserted when in
-
-// Ti -> Ti via no request
-// Ti -> Ta via new request
-// on enter of Ta, set address state to false
-// on enter of Td, burst is sampled
-// Ta -> Td
-// Td -> Ti after signaling ready and no burst (blast low)
-// Td -> Td after signaling ready and burst (blast high)
-// Ti -> TChecksumFailure if FAIL is asserted
-// NOTE: Tw may turn out to be synthetic
 template<bool enable = currentConfiguration.enableOneCycleWaitStates()>
 [[gnu::always_inline]]
 inline void waitOneBusCycle() noexcept {
@@ -569,8 +549,12 @@ void loop() {
             }
             // tell the chipset we are starting a transaction
             InTransactionPin :: assertPin();
-           // okay now we need to emulate a wait loop to allow the chipset time to do its thing
-           for (;;) {
+            // okay now we need to emulate a wait loop to allow the chipset time to do its thing
+           for (byte numBurstCycles = 0;;++numBurstCycles) {
+               if (numBurstCycles >= 8) {
+                   // too many cycles for a given transaction have occurred
+                   tooManyCyclesForTransaction();
+               }
                // instead of pulsing do cycle, we just assert it while we wait
                // this has the added benefit of providing proper synchronization between two different clock domains
                // for example, the GCM4 runs at 120MHz while this chip runs at 20MHz. Making the chipset wait provides implicit
