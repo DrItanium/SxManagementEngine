@@ -212,6 +212,14 @@ struct DigitalPin {
     }
 };
 
+/**
+ * @brief Abstract interface to the Serial object used as the debug console
+ */
+decltype(Serial1)& DebugConsole = Serial1;
+/**
+ * @brief Abstract interface to the Serial object used as the communication and configuration channel
+ */
+decltype(Serial)& CommunicationChannel = Serial;
 template<i960Pinout pin, decltype(HIGH) asserted, decltype(HIGH) deasserted>
 using OutputPin = DigitalPin<pin, PinStyle::Output, asserted, deasserted>;
 
@@ -254,16 +262,16 @@ public:
 using DenPin = InputPin<i960Pinout::DEN, LOW, HIGH>;
 using BlastPin = InputPin<i960Pinout::BLAST, LOW, HIGH>;
 using FailPin = InputPin<i960Pinout::FAIL, HIGH, LOW>;
-using Src0Trigger3Pin = InputPullupPin<i960Pinout::SRC0_TRIGGER_INT3, LOW, HIGH>;
-using Src1Trigger3Pin = InputPullupPin<i960Pinout::SRC1_TRIGGER_INT3, LOW, HIGH>;
-using Src0Trigger2Pin = InputPullupPin<i960Pinout::SRC0_TRIGGER_INT2, LOW, HIGH>;
-using Src1Trigger2Pin = InputPullupPin<i960Pinout::SRC1_TRIGGER_INT2, LOW, HIGH>;
-using Src0Trigger1Pin = InputPullupPin<i960Pinout::SRC0_TRIGGER_INT1, LOW, HIGH>;
-using Src1Trigger1Pin = InputPullupPin<i960Pinout::SRC1_TRIGGER_INT1, LOW, HIGH>;
-using Src0Trigger0Pin = InputPullupPin<i960Pinout::SRC0_TRIGGER_INT0, LOW, HIGH>;
-using Src1Trigger0Pin = InputPullupPin<i960Pinout::SRC1_TRIGGER_INT0, LOW, HIGH>;
+using Src0Trigger3Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT3, LOW, HIGH>;
+using Src1Trigger3Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT3, LOW, HIGH>;
+using Src0Trigger2Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT2, LOW, HIGH>;
+using Src1Trigger2Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT2, LOW, HIGH>;
+using Src0Trigger1Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT1, LOW, HIGH>;
+using Src1Trigger1Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT1, LOW, HIGH>;
+using Src0Trigger0Pin = InputPin<i960Pinout::SRC0_TRIGGER_INT0, LOW, HIGH>;
+using Src1Trigger0Pin = InputPin<i960Pinout::SRC1_TRIGGER_INT0, LOW, HIGH>;
 using LockRequestedPin = InputPin<i960Pinout::LOCK_REQUESTED, LOW, HIGH>;
-using ReadyInputPin = InputPullupPin<i960Pinout::READY_IN, LOW, HIGH>;
+using ReadyInputPin = InputPin<i960Pinout::READY_IN, LOW, HIGH>;
 constexpr i960Pinout BootSuccessfulPinIndex = currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::IN_TRANSACTION : i960Pinout::BOOT_SUCCESSFUL;
 constexpr i960Pinout InTransactionPinIndex = currentConfiguration.inTransactionAndBootSuccessfulSwapped() ? i960Pinout::BOOT_SUCCESSFUL : i960Pinout::IN_TRANSACTION;
 using BootSuccessfulPin = OutputPin<BootSuccessfulPinIndex, HIGH, LOW>; // protocol assumed is active high
@@ -365,7 +373,7 @@ terminateExecution() noexcept {
 void
 handleChecksumFail() noexcept {
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Checksum failure!");
+        DebugConsole.println("Checksum failure!");
     }
     terminateExecution();
 }
@@ -374,7 +382,7 @@ handleChecksumFail() noexcept {
 void
 tooManyCyclesForTransaction() noexcept {
    if constexpr (currentConfiguration.debugConsoleActive())  {
-       Serial1.println("Too many cycles for the given transaction");
+       DebugConsole.println("Too many cycles for the given transaction");
    }
    terminateExecution();
 }
@@ -401,13 +409,13 @@ configureClockSource() noexcept {
 }
 void configurePIC() noexcept {
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Setting up PIC!");
+        DebugConsole.println("Setting up PIC!");
     }
     if constexpr (currentConfiguration.getVersion() == 1) {
         // okay so configure the event and logic system for version 1
         // connect 10MHz clock to all CCLs
         if constexpr (currentConfiguration.debugConsoleActive()) {
-            Serial1.println("Setting up Event0!");
+            DebugConsole.println("Setting up Event0!");
         }
         Event0.set_generator(gen0::pin_pa2);
         Event0.set_generator(user::ccl0_event_b);
@@ -415,13 +423,13 @@ void configurePIC() noexcept {
         Event0.set_generator(user::ccl2_event_b);
         Event0.set_generator(user::ccl3_event_b);
         if constexpr (currentConfiguration.debugConsoleActive()) {
-            Serial1.println("Setting up Event1!");
+            DebugConsole.println("Setting up Event1!");
         }
         // use PA7 as a CCL input
         Event1.set_generator(gen1::pin_pa7);
         Event1.set_user(user::ccl0_event_a);
         if constexpr (currentConfiguration.debugConsoleActive()) {
-            Serial1.println("Setting up CCLs!");
+            DebugConsole.println("Setting up CCLs!");
         }
         // setup Logic0 for int0 trigger but keep the truth table for the end
         Logic0.edgedetect = edgedetect::enable;
@@ -478,7 +486,7 @@ void configurePIC() noexcept {
         Event1.start();
     }
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("PIC Configured!");
+        DebugConsole.println("PIC Configured!");
     }
 }
 // the setup routine runs once when you press reset:
@@ -489,18 +497,18 @@ void setup() {
     BootedPin ::assertPin();
     delay(2000);
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.swap(1);
-        Serial1.begin(9600);
+        DebugConsole.swap(1);
+        DebugConsole.begin(9600);
         if constexpr (currentConfiguration.waitForSerialConnect()) {
-            while (!Serial1) {
+            while (!DebugConsole) {
                 delay(1);
             }
         }
-        Serial1.println("i960 Management Engine");
+        DebugConsole.println("i960 Management Engine");
     }
     setupPins();
     if constexpr (currentConfiguration.enableCommunicationChannel()) {
-        Serial.swap(1);
+        CommunicationChannel.swap(1);
         // okay so activate interrupt sources if it makes sense
         /// @todo implement support for communication channel interrupts
     }
@@ -517,7 +525,7 @@ void setup() {
     while (FailPin::inputLow()) {
         if (DenPin::inputAsserted()) {
             if constexpr (currentConfiguration.debugConsoleActive()) {
-                Serial1.println("DEN Already Asserted!");
+                DebugConsole.println("DEN Already Asserted!");
             }
             break;
         }
@@ -525,19 +533,19 @@ void setup() {
     while (FailPin::inputHigh()) {
         if (DenPin::inputAsserted()) {
             if constexpr (currentConfiguration.debugConsoleActive()) {
-                Serial1.println("DEN Already Asserted!");
+                DebugConsole.println("DEN Already Asserted!");
             }
             break;
         }
     }
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Boot successful signalling!");
+        DebugConsole.println("Boot successful signalling!");
     }
     BootSuccessfulPin::assertPin();
     // at this point, if we ever go from low to high again then we have a checksum failure
     attachInterrupt(digitalPinToInterrupt(static_cast<int>(i960Pinout::FAIL)), handleChecksumFail, RISING);
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Interrupt attached!");
+        DebugConsole.println("Interrupt attached!");
     }
 }
 template<bool enable = currentConfiguration.enableOneCycleWaitStates()>
@@ -549,14 +557,30 @@ inline void waitOneBusCycle() noexcept {
 }
 [[gnu::always_inline]]
 inline void informCPUAndWait() noexcept {
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        DebugConsole.println("informCPUAndWait Entered!");
+    }
     ReadySyncPin :: pulse();
-    while (ReadyInputPin::inputAsserted());
+    while (ReadyInputPin::inputAsserted()) {
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            DebugConsole.print("Ready Input Pin Status: ");
+            DebugConsole.println(ReadyInputPin ::read());
+        }
+    }
     waitOneBusCycle();
 }
 
 [[gnu::always_inline]]
 inline void waitForCycleEnd() noexcept {
-    while (ReadyInputPin::inputDeasserted());
+    if constexpr (currentConfiguration.debugConsoleActive()) {
+        DebugConsole.println("Wait For Cycle End Entered!");
+    }
+    while (ReadyInputPin::inputDeasserted()) {
+        if constexpr (currentConfiguration.debugConsoleActive()) {
+            DebugConsole.print("Ready Input Pin Status: ");
+            DebugConsole.println(ReadyInputPin ::read());
+        }
+    }
     DoCyclePin ::deassertPin();
     waitOneBusCycle();
 }
@@ -564,23 +588,23 @@ volatile byte numCycles = 0;
 [[noreturn]]
 void loop() {
     if constexpr (currentConfiguration.debugConsoleActive()) {
-        Serial1.println("Entering Loop!");
+        DebugConsole.println("Entering Loop!");
     }
     for (;;) {
         if constexpr (currentConfiguration.debugConsoleActive()) {
-            Serial1.println("Loop Top!");
+            DebugConsole.println("Loop Top!");
         }
         // introduce some delay to make sure the bus has time to recover properly
         waitOneBusCycle();
         // okay so we need to wait for DEN to go low
         while (DenPin::inputDeasserted());
         if constexpr (currentConfiguration.debugConsoleActive()) {
-            Serial1.println("In Data Cycle!");
+            DebugConsole.println("In Data Cycle!");
         }
 
         if (numCycles >= currentConfiguration.getMaxNumberOfCyclesBeforePause()) {
             if constexpr (currentConfiguration.debugConsoleActive()) {
-                Serial1.println("Pausing!");
+                DebugConsole.println("Pausing!");
             }
             // provide a pause/cooldown period after a new data request to make sure that the bus has time to "cool".
             // Failure to do so can cause very strange checksum failures / chipset faults to happen with the GCM4
@@ -594,7 +618,7 @@ void loop() {
         // now do the logic
         {
             if constexpr (currentConfiguration.debugConsoleActive()) {
-                Serial1.println("Asserting InTransaction!");
+                DebugConsole.println("Asserting InTransaction!");
             }
             // tell the chipset we are starting a transaction
             InTransactionPin :: assertPin();
@@ -611,7 +635,7 @@ void loop() {
                // for example, the GCM4 runs at 120MHz while this chip runs at 20MHz. Making the chipset wait provides implicit
                // synchronization
                if constexpr (currentConfiguration.debugConsoleActive()) {
-                   Serial1.println("Asserting DoCycle!");
+                   DebugConsole.println("Asserting DoCycle!");
                }
                DoCyclePin :: assertPin();
                // we have entered a new transaction so increment the counter
@@ -620,7 +644,7 @@ void loop() {
                // now wait for the chipset to tell us that it has satisifed the current part of the transaction
                if (BlastPin::inputAsserted()) {
                    if constexpr (currentConfiguration.debugConsoleActive()) {
-                       Serial1.println("Burst Last!");
+                       DebugConsole.println("Burst Last!");
                    }
                    // if it turns out that blast is asserted then we break out of this loop and handle it specially
                    break;
@@ -630,13 +654,13 @@ void loop() {
                // let the chipset know that the operation will continue
                {
                    if constexpr (currentConfiguration.debugConsoleActive()) {
-                       Serial1.println("Assert Burst Next and Wait!");
+                       DebugConsole.println("Assert Burst Next and Wait!");
                    }
                    BurstNext::assertPin();
                    informCPUAndWait();
                    BurstNext::deassertPin();
                    if constexpr (currentConfiguration.debugConsoleActive()) {
-                       Serial1.println("Waiting for next cycle!");
+                       DebugConsole.println("Waiting for next cycle!");
                    }
                }
            }
@@ -644,12 +668,12 @@ void loop() {
            waitForCycleEnd();
            // okay tell the chipset transaction complete
             if constexpr (currentConfiguration.debugConsoleActive()) {
-                Serial1.println("Transaction Complete!");
+                DebugConsole.println("Transaction Complete!");
             }
             InTransactionPin :: deassertPin();
         }
         if constexpr (currentConfiguration.debugConsoleActive()) {
-            Serial1.println("Tell CPU about last part of transaction!");
+            DebugConsole.println("Tell CPU about last part of transaction!");
         }
         // we have to tie off the transaction itself first
         // let the i960 know and then wait for the chipset to pull MCU READY high
