@@ -65,7 +65,15 @@ public:
          * @brief For some of the single board computers the management engine is responsible for watching the reset circuit
          */
         HandleResetManually = (1 << 7),
+        /**
+         * @brief Instead of actually acting as a management engine, just pulse ready constantly
+         */
+        DoReadyPulseLoopMode = (1 << 8),
 
+        /**
+         * @brief Wait for serial console connection before continuing execution
+         */
+        WaitForSerialConnect = ( 1 << 9),
     };
 
 public:
@@ -92,6 +100,8 @@ public:
     constexpr auto getVersion() const noexcept { return version_; }
     constexpr auto debugConsoleActive() const noexcept { return hasFlagSet<Flags::EnableDebugConsole>(); }
     constexpr auto inTransactionAndBootSuccessfulSwapped() const noexcept { return hasFlagSet<Flags::InTransactionAndBootSuccessfulAreSwapped>(); }
+    constexpr auto waitForSerialConnect() const noexcept { return hasFlagSet<Flags::WaitForSerialConnect>(); }
+    constexpr auto enableReadyPulseMode() const noexcept { return hasFlagSet<Flags::DoReadyPulseLoopMode>(); }
 private:
     uint16_t configuration_;
     byte version_;
@@ -112,6 +122,7 @@ constexpr TargetConfiguration version1WithDebug {
         | TargetConfiguration::Flags::BuiltinInterruptController
         | TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
         | TargetConfiguration::Flags::EnableDebugConsole
+        | TargetConfiguration::Flags::WaitForSerialConnect
         ,
         1 /* version */,
         64 /* delay */ };
@@ -480,8 +491,10 @@ void setup() {
     if constexpr (currentConfiguration.debugConsoleActive()) {
         Serial1.swap(1);
         Serial1.begin(9600);
-        while (!Serial1) {
-            delay(1);
+        if constexpr (currentConfiguration.waitForSerialConnect()) {
+            while (!Serial1) {
+                delay(1);
+            }
         }
         Serial1.println("i960 Management Engine");
     }
@@ -493,6 +506,11 @@ void setup() {
     }
     if constexpr (currentConfiguration.hasPICBuiltin()) {
         configurePIC();
+    }
+    if constexpr (currentConfiguration.enableReadyPulseMode()) {
+        while (true) {
+            ReadySyncPin::pulse();
+        }
     }
     // no need to wait for the chipset to release control
     BootedPin::deassertPin();
@@ -581,11 +599,13 @@ void loop() {
             // tell the chipset we are starting a transaction
             InTransactionPin :: assertPin();
             // okay now we need to emulate a wait loop to allow the chipset time to do its thing
-           for (byte numBurstCycles = 0;;++numBurstCycles) {
+           for (/*byte numBurstCycles = 0;;++numBurstCycles*/ ;;) {
+#if 0
                if (numBurstCycles >= 8) {
                    // too many cycles for a given transaction have occurred
                    tooManyCyclesForTransaction();
                }
+#endif
                // instead of pulsing do cycle, we just assert it while we wait
                // this has the added benefit of providing proper synchronization between two different clock domains
                // for example, the GCM4 runs at 120MHz while this chip runs at 20MHz. Making the chipset wait provides implicit
