@@ -74,6 +74,10 @@ public:
          * @brief Wait for serial console connection before continuing execution
          */
         WaitForSerialConnect = ( 1 << 9),
+        /**
+         * @brief Inspect the ready input signal to see what its value is
+         */
+        TestReadyPinMode = (1 << 10),
     };
 
 public:
@@ -102,6 +106,7 @@ public:
     constexpr auto inTransactionAndBootSuccessfulSwapped() const noexcept { return hasFlagSet<Flags::InTransactionAndBootSuccessfulAreSwapped>(); }
     constexpr auto waitForSerialConnect() const noexcept { return hasFlagSet<Flags::WaitForSerialConnect>(); }
     constexpr auto enableReadyPulseMode() const noexcept { return hasFlagSet<Flags::DoReadyPulseLoopMode>(); }
+    constexpr auto enableTestReadyPinMode() const noexcept { return hasFlagSet<Flags::TestReadyPinMode>(); }
 private:
     uint16_t configuration_;
     byte version_;
@@ -126,12 +131,23 @@ constexpr TargetConfiguration version1WithDebug {
         ,
         1 /* version */,
         64 /* delay */ };
+constexpr TargetConfiguration v1TestReadyPin {
+        TargetConfiguration::Flags::HasExternalClockSource
+        | TargetConfiguration::Flags::EnableCommunicationChannel
+        | TargetConfiguration::Flags::BuiltinInterruptController
+        | TargetConfiguration::Flags::InTransactionAndBootSuccessfulAreSwapped
+        | TargetConfiguration::Flags::EnableDebugConsole
+        | TargetConfiguration::Flags::WaitForSerialConnect
+        | TargetConfiguration::Flags::TestReadyPinMode
+        ,
+        1 /* version */,
+        64 /* delay */ };
 constexpr TargetConfiguration version2GCM {
     TargetConfiguration::Flags::HandleResetManually,
     2,
     64
 };
-constexpr TargetConfiguration currentConfiguration = version1WithDebug;
+constexpr TargetConfiguration currentConfiguration = v1TestReadyPin;
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
@@ -520,6 +536,12 @@ void setup() {
             ReadySyncPin::pulse();
         }
     }
+    if constexpr (currentConfiguration.enableTestReadyPinMode()) {
+        while (true) {
+            DebugConsole.print("Ready Input Pin Value: ");
+            DebugConsole.println(ReadyInputPin::read());
+        }
+    }
     // no need to wait for the chipset to release control
     BootedPin::deassertPin();
     while (FailPin::inputLow()) {
@@ -557,30 +579,14 @@ inline void waitOneBusCycle() noexcept {
 }
 [[gnu::always_inline]]
 inline void informCPUAndWait() noexcept {
-    if constexpr (currentConfiguration.debugConsoleActive()) {
-        DebugConsole.println("informCPUAndWait Entered!");
-    }
     ReadySyncPin :: pulse();
-    while (ReadyInputPin::inputAsserted()) {
-        if constexpr (currentConfiguration.debugConsoleActive()) {
-            DebugConsole.print("Ready Input Pin Status: ");
-            DebugConsole.println(ReadyInputPin ::read());
-        }
-    }
+    while (ReadyInputPin::inputAsserted());
     waitOneBusCycle();
 }
 
 [[gnu::always_inline]]
 inline void waitForCycleEnd() noexcept {
-    if constexpr (currentConfiguration.debugConsoleActive()) {
-        DebugConsole.println("Wait For Cycle End Entered!");
-    }
-    while (ReadyInputPin::inputDeasserted()) {
-        if constexpr (currentConfiguration.debugConsoleActive()) {
-            DebugConsole.print("Ready Input Pin Status: ");
-            DebugConsole.println(ReadyInputPin ::read());
-        }
-    }
+    while (ReadyInputPin::inputDeasserted());
     DoCyclePin ::deassertPin();
     waitOneBusCycle();
 }
