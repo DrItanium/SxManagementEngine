@@ -147,7 +147,7 @@ constexpr TargetConfiguration version2GCM {
     2,
     64
 };
-constexpr TargetConfiguration currentConfiguration = v1TestReadyPin;
+constexpr TargetConfiguration currentConfiguration = version1WithDebug;
 enum class i960Pinout : int {
     SRC0_TRIGGER_INT1 = PIN_PF0,
     SRC1_TRIGGER_INT1 = PIN_PF1,
